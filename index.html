@@ -1,0 +1,3706 @@
+<!DOCTYPE html>
+
+<html lang="th">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>ระบบบัญชีเครดิต</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;500;600&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/eruda/3.0.1/eruda.min.js"></script>
+
+  <script>eruda.init();</script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+  <!-- Firebase SDK — ใช้ bundle จาก cdnjs ซึ่งมีทุก CDN mirror -->
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.0/firebase-app-compat.min.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.0/firebase-auth-compat.min.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.0/firebase-firestore-compat.min.js"></script>
+
+  <script>
+    (function(){
+      var stub = {
+        currentUser: null,
+        onAuthStateChanged: function(cb){ cb(null); return function(){}; },
+        signInWithEmailAndPassword:     function(){ return Promise.reject(new Error("Firebase ไม่พร้อม")); },
+        createUserWithEmailAndPassword: function(){ return Promise.reject(new Error("Firebase ไม่พร้อม")); },
+        signInWithPopup:                function(){ return Promise.reject(new Error("Firebase ไม่พร้อม")); },
+        sendPasswordResetEmail:         function(){ return Promise.reject(new Error("Firebase ไม่พร้อม")); },
+        signOut:                        function(){ return Promise.resolve(); },
+        updateProfile:                  function(){ return Promise.resolve(); },
+      };
+      var dbStub = { collection: function(){ return { doc: function(){ return {
+        set: function(){ return Promise.resolve(); },
+        get: function(){ return Promise.resolve({exists:false,data:function(){return {};}}); },
+        onSnapshot: function(){ return function(){}; }
+      };}};} };
+
+      try {
+        if(typeof firebase === 'undefined') throw new Error("Firebase SDK ไม่โหลด — ตรวจสอบอินเทอร์เน็ต");
+        if (!firebase.apps.length) {
+          firebase.initializeApp({
+            apiKey:            "AIzaSyDTVFDToIghvsgwwruAEnW9SW-Yda3oLJs",
+            authDomain:        "account09.firebaseapp.com",
+            projectId:         "account09",
+            storageBucket:     "account09.firebasestorage.app",
+            messagingSenderId: "184805590193",
+            appId:             "1:184805590193:web:4312fa173f3b9e7123ce90"
+          });
+        }
+        var auth = firebase.auth();
+
+        // ใช้ inMemoryPersistence เพื่อหลีกเลี่ยงปัญหา localStorage บน iOS WebView
+        try { auth.setPersistence(firebase.auth.Auth.Persistence.SESSION); } catch(_){}
+
+        var db = firebase.firestore();
+        db.settings({ experimentalAutoDetectLongPolling: true });
+
+        window._fbAuth = {
+          currentUser: null,
+          onAuthStateChanged: function(cb){
+            return auth.onAuthStateChanged(function(u){ window._fbAuth.currentUser=u; cb(u); });
+          },
+          signInWithEmailAndPassword:     function(e,p){ return auth.signInWithEmailAndPassword(e,p); },
+          createUserWithEmailAndPassword: function(e,p){ return auth.createUserWithEmailAndPassword(e,p); },
+          // Google Sign-In: ใช้ redirect แทน popup สำหรับ iOS/in-app browser
+          signInWithPopup: function(){
+            var provider = new firebase.auth.GoogleAuthProvider();
+            // ลอง popup ก่อน ถ้าไม่ได้ใช้ redirect
+            return auth.signInWithPopup(provider).catch(function(err){
+              if(err.code === 'auth/operation-not-supported-in-this-environment'||
+                 err.code === 'auth/popup-blocked' ||
+                 err.code === 'auth/popup-closed-by-user'){
+                return auth.signInWithRedirect(provider);
+              }
+              return Promise.reject(err);
+            });
+          },
+          getRedirectResult: function(){ return auth.getRedirectResult(); },
+          sendPasswordResetEmail:  function(e){ return auth.sendPasswordResetEmail(e); },
+          signOut:                 function(){ return auth.signOut(); },
+          updateProfile:           function(u,p){ return u.updateProfile(p); },
+        };
+        window._fbDb = {
+          collection: function(col){
+            return { doc: function(id){
+              var ref = db.collection(col).doc(id);
+              return {
+                set:        function(d,o){ return ref.set(d,o||{}); },
+                get:        function(){   return ref.get(); },
+                onSnapshot: function(cb,err){ return ref.onSnapshot(cb,err||function(){}); },
+              };
+            }};
+          }
+        };
+        // เช็ค redirect result (กรณีกลับจาก Google login)
+        auth.getRedirectResult().then(function(result){
+          if(result && result.user) console.log("Redirect login success:", result.user.email);
+        }).catch(function(){});
+
+        window._fbReady = true;
+      } catch(e) {
+        console.error("Firebase init failed:", e);
+        window._fbReady = false;
+        window._fbAuth = stub;
+        window._fbDb   = dbStub;
+      }
+      window._firebaseInitDone = true;
+    })();
+  </script>
+
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Mitr','Sarabun',sans-serif;background:var(--c-bg);color:var(--c-text);min-height:100vh}
+    input,select,button,textarea{font-family:inherit}
+    ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#ff9eaa;border-radius:4px}
+    .tab-bar{display:flex;overflow-x:auto;gap:2px;scrollbar-width:none;padding-bottom:0}
+    .tab-bar::-webkit-scrollbar{display:none}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes slideUp{from{opacity:0;transform:translateY(20px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+    .anim{animation:fadeIn .16s ease}
+    .badge{display:inline-flex;align-items:center;justify-content:center;
+      background:#ff5f7e;color:#fff;border-radius:50%;width:15px;height:15px;
+      font-size:8px;font-weight:800;position:absolute;top:-2px;right:-2px}
+
+    /* ── Design tokens ── */
+    :root{
+      --c-bg:#f2e4eb;
+      --c-card:#ffffff;
+      --c-text:#4a2535;
+      --c-sub:#9a6070;
+      --c-border:rgba(180,80,110,0.12);
+      --c-panel:#fdf0f4;
+      --c-input-bg:#fff;
+      --c-accent:#ff4d6d;
+      --c-accent2:#ff9eaa;
+      --c-glass:rgba(255,255,255,0.80);
+      --shadow-sm:0 1px 4px rgba(150,60,80,0.07),0 2px 12px rgba(150,60,80,0.05);
+      --shadow-md:0 4px 16px rgba(150,60,80,0.10),0 1px 4px rgba(150,60,80,0.06);
+      --shadow-lg:0 16px 48px rgba(150,60,80,0.16),0 4px 12px rgba(150,60,80,0.08);
+      --radius-sm:12px;
+      --radius-md:18px;
+      --radius-lg:24px;
+      --card-border:1px solid rgba(255,255,255,0.9);
+    }
+    body.dark{
+      --c-bg:#12070c;
+      --c-card:#1c1018;
+      --c-text:#f0d4de;
+      --c-sub:#b07888;
+      --c-border:rgba(255,120,150,0.10);
+      --c-panel:#17090f;
+      --c-input-bg:#1c1018;
+      --c-glass:rgba(28,16,24,0.90);
+      --shadow-sm:0 1px 4px rgba(0,0,0,0.25),0 2px 12px rgba(0,0,0,0.20);
+      --shadow-md:0 4px 16px rgba(0,0,0,0.35),0 1px 4px rgba(0,0,0,0.20);
+      --shadow-lg:0 16px 48px rgba(0,0,0,0.55),0 4px 12px rgba(0,0,0,0.30);
+      --card-border:1px solid rgba(255,120,150,0.08);
+    }
+
+    /* Dark mode auto-fix for hardcoded elements */
+    body.dark input,body.dark select,body.dark textarea{
+      background:var(--c-input-bg)!important;color:var(--c-text)!important;
+      border-color:rgba(255,120,150,0.18)!important;
+    }
+    body.dark .card-auto{background:var(--c-card)!important;color:var(--c-text)!important;}
+    body.dark .panel-auto{background:var(--c-panel)!important;}
+
+    /* ── Header: full-bleed glass ── */
+    .app-header{
+      background:var(--c-glass);
+      backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+      border-bottom:1px solid var(--c-border);
+      position:sticky;top:0;z-index:200;
+    }
+
+    /* ── Tab bar ── */
+    .tab-btn{
+      border:none;cursor:pointer;padding:9px 13px;font-size:11px;font-weight:700;
+      white-space:nowrap;position:relative;transition:all .15s;
+      background:transparent;color:var(--c-sub);border-radius:10px 10px 0 0;
+    }
+    .tab-btn.active{background:var(--c-card);color:var(--c-accent);}
+    .tab-btn.active::after{
+      content:"";position:absolute;bottom:0;left:10px;right:10px;
+      height:2px;background:var(--c-accent);border-radius:2px 2px 0 0;
+    }
+
+    /* ── Glass btn ── */
+    .glass-btn{
+      background:var(--c-glass)!important;color:var(--c-text)!important;
+      border:var(--card-border)!important;border-radius:10px!important;
+      transition:all .15s;backdrop-filter:blur(8px);
+    }
+    .glass-btn:hover{background:var(--c-card)!important;box-shadow:var(--shadow-sm);}
+
+    /* ── Page: full width, comfortable padding ── */
+    .page-content{width:100%;padding:10px 8px 90px;}
+    @media(min-width:480px){.page-content{padding:12px 14px 90px;}}
+    @media(min-width:768px){.page-content{padding:16px 24px 90px;}}
+
+    /* ── Grid layouts ── */
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+    .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+    .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+    @media(min-width:600px){
+      .grid-2-to-4{grid-template-columns:repeat(4,1fr)!important;}
+    }
+
+    /* ── Modern card: no flat border, layered shadow + subtle inner highlight ── */
+    .stat-card{
+      background:var(--c-card);
+      border-radius:var(--radius-md);
+      padding:14px 16px;
+      box-shadow:var(--shadow-md);
+      border:var(--card-border);
+      position:relative;overflow:hidden;
+    }
+    .stat-card::before{
+      content:"";position:absolute;inset:0;
+      background:linear-gradient(135deg,rgba(255,255,255,0.5) 0%,transparent 60%);
+      pointer-events:none;border-radius:inherit;
+    }
+    body.dark .stat-card::before{
+      background:linear-gradient(135deg,rgba(255,255,255,0.04) 0%,transparent 60%);
+    }
+    .stat-card .label{font-size:10px;color:var(--c-sub);margin-bottom:3px;font-weight:700;letter-spacing:.02em;}
+    .stat-card .val{font-size:19px;font-weight:900;line-height:1.1;}
+    .stat-card .sub{font-size:10px;color:var(--c-sub);margin-top:3px;}
+
+    /* ── Mini stat ── */
+    .mini-stat{border-radius:var(--radius-sm);padding:9px 10px;}
+    .mini-stat .label{font-size:9px;font-weight:800;margin-bottom:2px;letter-spacing:.02em;}
+    .mini-stat .val{font-size:13px;font-weight:900;}
+    .mini-stat .sub{font-size:9px;margin-top:2px;opacity:.75;}
+
+    /* ── Section header ── */
+    .section-hd{
+      font-size:10px;font-weight:800;color:var(--c-sub);
+      text-transform:uppercase;letter-spacing:.08em;margin:16px 0 7px;
+    }
+
+    /* ── Timeline / list item ── */
+    .tl-item{
+      background:var(--c-card);border-radius:var(--radius-sm);
+      padding:11px 13px;margin-bottom:5px;
+      box-shadow:var(--shadow-sm);border:var(--card-border);
+    }
+
+    /* ── Modal: bottom sheet → centered on wide ── */
+    .modal-overlay{
+      position:fixed;inset:0;background:rgba(12,5,8,0.65);
+      backdrop-filter:blur(12px);z-index:999;
+      display:flex;align-items:flex-end;justify-content:center;padding:0;
+    }
+    @media(min-width:480px){.modal-overlay{align-items:center;padding:16px;}}
+    .modal-sheet{
+      background:var(--c-card);width:100%;max-width:520px;
+      border-radius:26px 26px 0 0;max-height:96vh;overflow-y:auto;
+      box-shadow:var(--shadow-lg);animation:slideUp .22s ease;
+      border:var(--card-border);
+    }
+    @media(min-width:480px){.modal-sheet{border-radius:var(--radius-lg);}}
+    .modal-header{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:20px 22px 15px;border-bottom:1px solid var(--c-border);
+      position:sticky;top:0;background:var(--c-card);z-index:1;
+    }
+    .modal-close{
+      width:32px;height:32px;border-radius:50%;border:none;cursor:pointer;
+      background:var(--c-panel);color:var(--c-sub);font-size:15px;
+      display:flex;align-items:center;justify-content:center;
+      transition:background .15s;
+    }
+    .modal-close:hover{background:var(--c-border);}
+    .modal-body{padding:18px 22px 32px;}
+
+    /* ── Sidebar: sleek dark strip ── */
+    .sidebar{
+      position:fixed;left:0;top:0;bottom:0;width:256px;
+      background:var(--c-card);box-shadow:var(--shadow-lg);
+      padding:0;overflow-y:auto;z-index:1201;
+      border-right:var(--card-border);
+    }
+    .sidebar-item{
+      display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+      border:none;border-radius:var(--radius-sm);padding:11px 14px;margin-bottom:2px;
+      font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;
+      background:transparent;color:var(--c-sub);
+    }
+    .sidebar-item.active,.sidebar-item:hover{
+      background:linear-gradient(90deg,var(--c-accent)15,transparent);
+      color:var(--c-accent);
+    }
+    .sidebar-item .icon{font-size:16px;width:22px;text-align:center;}
+
+    /* ── FAB: pill shape, gradient ── */
+    .fab{
+      position:fixed;bottom:20px;right:16px;z-index:500;
+      background:linear-gradient(135deg,#ff4d6d,#ff9eaa);
+      color:#fff;border:none;border-radius:30px;padding:15px 24px;
+      font-size:13px;font-weight:800;cursor:pointer;
+      box-shadow:0 6px 24px rgba(255,77,109,0.45);
+      transition:transform .15s,box-shadow .15s;
+    }
+    .fab:active{transform:scale(.96);}
+    .fab:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(255,77,109,0.55);}
+
+    /* ── Progress bar ── */
+    .prog-track{background:var(--c-panel);border-radius:8px;height:7px;overflow:hidden;}
+    .prog-fill{height:100%;border-radius:8px;transition:width .45s ease;}
+
+    /* ── Credit ring ── */
+    .credit-ring-wrap{position:relative;display:inline-flex;align-items:center;justify-content:center;}
+
+    /* ── Input / select clean look ── */
+    input[type=text],input[type=number],input[type=date],select,textarea{
+      width:100%;padding:10px 13px;
+      background:var(--c-input-bg);color:var(--c-text);
+      border:1.5px solid var(--c-border);border-radius:var(--radius-sm);
+      font-size:13.5px;outline:none;transition:border-color .15s,box-shadow .15s;
+    }
+    input:focus,select:focus,textarea:focus{
+      border-color:var(--c-accent);
+      box-shadow:0 0 0 3px rgba(255,77,109,0.12);
+    }
+  </style>
+
+</head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {useState,useMemo,useEffect}=React;
+
+const CREDIT_TYPES=[
+{value:“bad_debt”,         label:“เครดิตเสีย”,           color:”#ef4444”},
+{value:“loan”,             label:“เครดิตเงินกู้”,         color:”#f97316”},
+{value:“scan_outside”,     label:“สแกนของนอกร้าน”,       color:”#8b5cf6”},
+{value:“in_store”,         label:“ซื้อของร้าน (เครดิต)”, color:”#3b82f6”},
+{value:“installment_goods”,label:“ผ่อนสินค้า”,            color:”#10b981”},
+];
+const PAY_MODES=[
+{value:“principal_interest”,label:“ต้น + ดอก (ปกติ)”},
+{value:“interest_only”,     label:“จ่ายแต่ดอก”},
+{value:“custom_schedule”,   label:“กำหนดวันเองรายครั้ง”},
+];
+const FREQ=[
+{value:“daily”,  label:“รายวัน”},
+{value:“weekly”, label:“รายสัปดาห์”},
+{value:“monthly”,label:“รายเดือน”},
+{value:“custom”, label:“กำหนดเองแต่ละครั้ง”},
+];
+const MONTHS=[“ม.ค.”,“ก.พ.”,“มี.ค.”,“เม.ย.”,“พ.ค.”,“มิ.ย.”,“ก.ค.”,“ส.ค.”,“ก.ย.”,“ต.ค.”,“พ.ย.”,“ธ.ค.”];
+
+const genId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+
+// ── NORMALIZERS: บังคับทุก numeric field เป็น Number เสมอ ──
+// ป้องกัน JSON.parse คืน string จาก localStorage แล้วเกิด string concatenation
+const toN=v=>+v||0;
+const normalizeDebt=d=>({…d,
+principalMom:toN(d.principalMom), principalUs:toN(d.principalUs),
+creditPrice:toN(d.creditPrice),   totalInstallments:toN(d.totalInstallments),
+interestAmt:toN(d.interestAmt),   momProfitRatio:+d.momProfitRatio||0.5,
+splitMode:d.splitMode||“shared”,
+});
+const normalizePayment=p=>({…p, amount:toN(p.amount)});
+const normalizeSale=s=>({…s, revenue:toN(s.revenue), cost:toN(s.cost)});
+const normalizeWallet=w=>({
+seedCash:toN(w?.seedCash),
+entries:(w?.entries||[]).map(e=>({…e,amount:toN(e.amount)})),
+});
+
+const today=()=>new Date().toISOString().slice(0,10);
+const fmt=n=>Math.round(n||0).toLocaleString(“th-TH”);
+const fmtD=n=>(n||0).toLocaleString(“th-TH”,{minimumFractionDigits:2,maximumFractionDigits:2});
+const thDate=iso=>{if(!iso)return”-”;const[y,m,d]=iso.split(”-”);return`${+d} ${MONTHS[+m-1]} ${+y+543}`};
+// BUG FIX 1: mKey was a string, not a function
+const mKey=iso=>iso?iso.slice(0,7):””;
+const mLabel=k=>{if(!k)return””;const[y,m]=k.split(”-”);return`${MONTHS[+m-1]} ${+y+543}`};
+const daysBetween=(a,b)=>Math.round((new Date(b)-new Date(a))/(1000*86400));
+const addDays=(iso,n)=>{const d=new Date(iso);d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)};
+const addMonths=(iso,n)=>{const d=new Date(iso);d.setMonth(d.getMonth()+n);return d.toISOString().slice(0,10)};
+const addWeeks=(iso,n)=>addDays(iso,n*7);
+
+const lsSave=(k,v)=>{try{localStorage.setItem(“cb2_”+k,JSON.stringify(v))}catch(*){}};
+const lsLoad=(k,fb)=>{try{const r=localStorage.getItem(“cb2*”+k);return r?JSON.parse(r):fb}catch(_){return fb}};
+
+// ── FIREBASE SYNC ─────────────────────────────────────────────────────────────
+// UID-scoped prefix สำหรับ localStorage เมื่อ login แล้ว
+// เก็บ: /users/{uid}/data → single doc ที่มี customers, debts, payments, sales, products, wallet, settings
+const SYNC_KEYS=[“customers”,“debts”,“payments”,“sales”,“products”,“wallet”,“settings”];
+const SYNC_DEBOUNCE_MS=3000; // รอ 3 วิหลังแก้ข้อมูลค่อย push ขึ้น cloud (ป้องกัน write บ่อยเกิน)
+let _syncTimer=null;
+let _currentUid=null;
+
+// เปลี่ยน prefix localStorage ตาม UID เพื่อแยกข้อมูลแต่ละ account ในอุปกรณ์เดียวกัน
+function lsKeyFor(k,uid){ return `fb_${uid||"local"}_${k}`; }
+function lsSaveU(k,v,uid=*currentUid){ try{localStorage.setItem(lsKeyFor(k,uid),JSON.stringify(v))}catch(*){} }
+function lsLoadU(k,fb,uid=*currentUid){ try{const r=localStorage.getItem(lsKeyFor(k,uid));return r?JSON.parse(r):fb}catch(*){return fb} }
+
+// Push ข้อมูลทั้งหมดขึ้น Firestore (debounced)
+function scheduleSyncUp(uid,getData){
+if(!uid)return;
+clearTimeout(_syncTimer);
+_syncTimer=setTimeout(async()=>{
+try{
+const payload={};
+SYNC_KEYS.forEach(k=>{ payload[k]=lsLoadU(k,null,uid); });
+payload._updatedAt=new Date().toISOString();
+await window._fbDb.collection(“users”).doc(uid).set(payload,{merge:true});
+}catch(e){ console.warn(“sync up failed”,e); }
+},SYNC_DEBOUNCE_MS);
+}
+
+// Pull ข้อมูลจาก Firestore ลง localStorage และคืน object
+async function syncDown(uid){
+if(!uid)return null;
+try{
+const snap=await window._fbDb.collection(“users”).doc(uid).get();
+// modular SDK: exists เป็น method — snap.exists() หรือ property ก็ได้ตาม wrapper
+const hasData=typeof snap.exists===“function”?snap.exists():snap.exists;
+if(!hasData)return null;
+const data=snap.data();
+SYNC_KEYS.forEach(k=>{ if(data[k]!==undefined) lsSaveU(k,data[k],uid); });
+return data;
+}catch(e){ console.warn(“sync down failed”,e); return null; }
+}
+
+// Subscribe realtime — อัปเดต state เมื่อ Firestore เปลี่ยนจากอุปกรณ์อื่น
+function subscribeRealtime(uid,onUpdate){
+if(!uid)return ()=>{};
+return window._fbDb.collection(“users”).doc(uid).onSnapshot(snap=>{
+const hasData=typeof snap.exists===“function”?snap.exists():snap.exists;
+if(!hasData)return;
+const data=snap.data();
+SYNC_KEYS.forEach(k=>{ if(data[k]!==undefined) lsSaveU(k,data[k],uid); });
+onUpdate(data);
+},()=>{});
+}
+
+// splitMode:
+//  “separate”  → ทุนใคร กำไรคนนั้นได้ (proportional ตามทุน แยกขาด)
+//  “shared”    → ทุนรวม แบ่งกำไร % ด้วย momProfitRatio (แบบเดิม)
+//  “split_cap” → ทุนแยก แต่กำไรยังแบ่ง proportional ตามทุนแต่ละคน
+// ── SPLIT MODE ──────────────────────────────────────────────────────────────
+// mode “shared”    : ทุนรวมกัน กำไรรวมแล้วแบ่ง % (slider)
+// mode “separate”  : ทุนแยกขาด — กำไรของใครก็เป็นของคนนั้น 100% (ไม่แบ่งข้าม)
+//                    แม่ได้กำไร = (creditPrice − totalCap) × (pM/totalCap)  ← proportional ตามทุน
+//                    [ผู้ใช้เลือก mode นี้เพราะไม่อยากยุ่งกับกำไรของอีกฝ่าย]
+// mode “split_cap” : ทุนแยก แต่กำไรรวมแล้วยังแบ่ง % slider เหมือน shared
+//                    ต่างกับ shared ตรงที่: ทุนออกแยก ดูออกชัดว่าใครออกเท่าไหร่
+function calcSplit(debt){
+const pM=Math.max(0,toN(debt.principalMom));
+const pU=Math.max(0,toN(debt.principalUs));
+const cp=Math.max(1,toN(debt.creditPrice)||1);
+const mode=debt.splitMode||“shared”;
+const totalCap=pM+pU||1;
+const profit=Math.max(0,cp-(pM+pU));
+
+if(mode===“separate”){
+// กำไรแต่ละฝ่ายตามสัดส่วนทุน — ไม่ข้ามกัน
+const momProfitAmt=profit*(pM/totalCap);
+const usProfitAmt =profit*(pU/totalCap);
+return{
+splitMode:“separate”,
+momRatio:pM/cp,          usRatio:pU/cp,
+momProfitRatio:momProfitAmt/cp, usProfitRatio:usProfitAmt/cp,
+// เก็บ amt ไว้ให้ preview ใช้
+_profitMom:momProfitAmt,  _profitUs:usProfitAmt,
+};
+}
+
+if(mode===“split_cap”){
+// ทุนแยก แต่กำไรรวมแล้วแบ่ง % slider
+const mr=Math.min(1,Math.max(0,toN(debt.momProfitRatio)||0.5));
+return{
+splitMode:“split_cap”,
+momRatio:pM/cp, usRatio:pU/cp,
+momProfitRatio:(profit*mr)/cp,
+usProfitRatio:(profit*(1-mr))/cp,
+_profitMom:profit*mr, _profitUs:profit*(1-mr),
+};
+}
+
+// “shared”: ทุนรวม กำไรแบ่ง %
+const mr=Math.min(1,Math.max(0,toN(debt.momProfitRatio)||0.5));
+return{
+splitMode:“shared”,
+momRatio:pM/cp, usRatio:pU/cp,
+momProfitRatio:(profit*mr)/cp,
+usProfitRatio:(profit*(1-mr))/cp,
+_profitMom:profit*mr, _profitUs:profit*(1-mr),
+};
+}
+
+// buildSchedule แบบเต็ม (ไม่จำกัด horizon) สำหรับใช้คำนวณภายใน
+// buildScheduleDisplay (จำกัด 30 วัน) สำหรับแสดงผลในตาราง
+function buildFullSchedule(debt){
+const sc=debt.schedule;
+if(!sc)return[];
+if(sc.freq===“custom”){
+return(sc.customDates||[]).map(cd=>({
+date:cd.date, amtDue:+cd.amount||0, label:cd.label||””,
+type:sc.payMode, debtId:debt.id
+}));
+}
+if(!sc.startDate)return[];
+const installAmt=sc.payMode===“interest_only”
+? +(debt.interestAmt||0)
+: Math.round((debt.creditPrice/(debt.totalInstallments||1))*100)/100;
+const result=[];
+let cur=sc.startDate;
+const total=debt.totalInstallments||1;
+for(let i=0;i<total&&i<500;i++){
+result.push({date:cur, amtDue:installAmt, type:sc.payMode, debtId:debt.id, idx:i});
+if(sc.freq===“daily”)        cur=addDays(cur,1);
+else if(sc.freq===“weekly”)  cur=addWeeks(cur,1);
+else if(sc.freq===“monthly”) cur=addMonths(cur,1);
+else break;
+if(sc.payMode!==“interest_only”&&i+1>=total) break;
+}
+return result;
+}
+
+function buildSchedule(debt, payments){
+// สำหรับแสดงผล: จำกัด horizon 30 วันข้างหน้า
+const full=buildFullSchedule(debt);
+if(!full.length)return[];
+if(debt.schedule?.freq===“custom”)return full;
+const horizon=addDays(today(),30);
+return full.filter(s=>s.date>=addDays(today(),-7)&&s.date<=horizon);
+}
+
+function getOverdue(debt, scheduleOrFull, payments, asOf){
+if(!scheduleOrFull.length)return[];
+// จับคู่การชำระกับงวด: เรียงงวดตามวันที่ แล้ว match กับ payment ที่จ่ายก่อนหรือตรงวันนัด
+const dPayments=payments.filter(p=>p.debtId===debt.id).map(p=>p.date).sort();
+const pastDue=scheduleOrFull.filter(s=>s.date<=asOf);
+// นับว่าจ่ายครบกี่งวด: ใช้วิธี greedy match — payment แต่ละรายการ “cover” งวดที่เก่าที่สุดที่ยังไม่ถูก cover
+const usedPayments=new Set();
+const paidInstallments=new Set();
+const sortedPastDue=[…pastDue].sort((a,b)=>a.date.localeCompare(b.date));
+const sortedPayments=[…dPayments].sort();
+let pi=0;
+for(const inst of sortedPastDue){
+// หา payment ที่จ่ายภายใน 7 วันหลังวันนัด (tolerance)
+while(pi<sortedPayments.length&&sortedPayments[pi]<inst.date) pi++;
+// รับ payment ที่จ่ายตั้งแต่วันนัดหรือก่อน (±0) ถึง 7 วันหลัง
+let found=false;
+for(let j=pi;j<sortedPayments.length&&sortedPayments[j]<=addDays(inst.date,7);j++){
+if(!usedPayments.has(sortedPayments[j])){
+usedPayments.add(sortedPayments[j]);
+paidInstallments.add(inst.date+”*”+inst.idx);
+found=true; break;
+}
+}
+}
+return sortedPastDue.filter(s=>!paidInstallments.has(s.date+”*”+s.idx));
+}
+
+// คะแนนเครดิต: คำนวณจากการ match งวดกับการชำระจริง
+function calcCreditScore(custDebts, allPayments){
+let onTime=0, late=0, totalLateDays=0, hasBadDebt=false;
+custDebts.forEach(d=>{
+// เครดิตเสียที่ยังค้างอยู่
+if(d.creditType===“bad_debt”){
+const paid=allPayments.filter(p=>p.debtId===d.id).reduce((a,p)=>a+p.amount,0);
+if(paid<d.creditPrice) hasBadDebt=true;
+}
+const fullSched=buildFullSchedule(d);
+if(!fullSched.length)return;
+const dPayments=allPayments
+.filter(p=>p.debtId===d.id)
+.map(p=>p.date)
+.sort();
+// greedy match งวดกับ payment
+const usedPayIdx=new Set();
+const sortedSched=[…fullSched].sort((a,b)=>a.date.localeCompare(b.date));
+for(const inst of sortedSched){
+// หา payment ที่จ่ายตั้งแต่วันนัดหรือก่อนหน้า (แต่ไม่เกิน 60 วันก่อน)
+let bestIdx=-1, bestDiff=Infinity;
+for(let j=0;j<dPayments.length;j++){
+if(usedPayIdx.has(j))continue;
+const diff=daysBetween(inst.date,dPayments[j]); // บวก = จ่ายช้า, ลบ = จ่ายเร็ว
+if(diff>60)continue;    // จ่ายช้าเกิน 60 วัน ไม่นับ
+if(diff>=-90&&Math.abs(diff)<Math.abs(bestDiff)){
+bestIdx=j; bestDiff=diff;
+}
+}
+if(bestIdx===-1)continue; // งวดนี้ยังไม่มีการชำระ ข้าม
+usedPayIdx.add(bestIdx);
+if(bestDiff<=3) onTime++;          // จ่ายตรงเวลา ±3 วัน ถือว่าดี
+else if(bestDiff>3){
+late++; totalLateDays+=bestDiff;
+} else onTime++; // จ่ายก่อน
+}
+});
+const total=onTime+late;
+if(total===0&&!hasBadDebt) return{level:“ยังไม่มีประวัติ”,color:”#94a3b8”,pct:null};
+if(hasBadDebt) return{level:“แย่”,color:”#ef4444”,pct:0};
+const pct=total>0?Math.round((onTime/total)*100):100;
+const avgLate=late>0?Math.round(totalLateDays/late):0;
+let level,color;
+if(pct>=85&&avgLate<=5){level=“ดีมาก”;color=”#10b981”;}
+else if(pct>=70){level=“ดี”;color=”#22c55e”;}
+else if(pct>=50){level=“ปานกลาง”;color=”#f59e0b”;}
+else{level=“แย่”;color=”#ef4444”;}
+return{level,color,pct,avgLate,onTime,late};
+}
+
+const iStyle={width:“100%”,padding:“10px 13px”,border:“1.5px solid var(–c-border)”,
+borderRadius:“var(–radius-sm)”,fontSize:14,outline:“none”,
+background:“var(–c-input-bg)”,color:“var(–c-text)”,transition:“border-color .15s”};
+
+function Tag({type}){
+const t=CREDIT_TYPES.find(x=>x.value===type)||{label:type,color:”#888”};
+return<span style={{background:t.color+“20”,color:t.color,
+borderRadius:6,padding:“2px 8px”,fontSize:10,fontWeight:700,whiteSpace:“nowrap”,
+border:`1px solid ${t.color}35`}}>{t.label}</span>;
+}
+function PTag({mode}){
+const m=PAY_MODES.find(x=>x.value===mode)||{label:mode};
+const colors={“principal_interest”:”#10b981”,“interest_only”:”#f97316”,“custom_schedule”:”#8b5cf6”};
+const c=colors[mode]||”#888”;
+return<span style={{background:c+“18”,color:c,borderRadius:6,padding:“2px 8px”,
+fontSize:10,fontWeight:700,whiteSpace:“nowrap”,border:`1px solid ${c}30`}}>{m.label}</span>;
+}
+function FTag({freq}){
+const f=FREQ.find(x=>x.value===freq)||{label:freq};
+return<span style={{background:“var(–c-panel)”,color:“var(–c-sub)”,borderRadius:6,
+padding:“2px 8px”,fontSize:10,fontWeight:600,border:“1px solid var(–c-border)”}}>{f.label}</span>;
+}
+function Btn({onClick,color,children,small,full,outline,danger}){
+const c=danger?”#ef4444”:(color||“var(–c-accent)”);
+return<button onClick={onClick} style={{
+background:outline?“transparent”:c,
+color:outline?c:”#fff”,
+border:outline?`1.5px solid ${c}`:“none”,
+borderRadius:“var(–radius-sm)”,
+padding:small?“5px 12px”:“10px 20px”,
+fontSize:small?11.5:13.5,fontWeight:700,cursor:“pointer”,
+width:full?“100%”:“auto”,whiteSpace:“nowrap”,
+boxShadow:outline?“none”:`0 2px 8px ${c}30`,
+transition:“all .15s”}}>{children}</button>;
+}
+function Row({label,children,required,hint}){
+return<div style={{marginBottom:13}}>
+<label style={{display:“block”,fontSize:11.5,color:“var(–c-sub)”,marginBottom:4,fontWeight:700,letterSpacing:”.02em”}}>
+{label}{required&&<span style={{color:”#ff5f7e”}}> *</span>}
+{hint&&<span style={{color:“var(–c-sub)”,fontWeight:400,marginLeft:4,fontSize:10}}>({hint})</span>}
+</label>{children}
+
+  </div>;
+}
+function Modal({title,onClose,children,wide}){
+  return<div className="modal-overlay" onClick={onClose}>
+    <div className="modal-sheet" style={{maxWidth:wide?600:480}} onClick={e=>e.stopPropagation()}>
+      <div className="modal-header">
+        <span style={{fontWeight:800,fontSize:15,color:"var(--c-text)"}}>{title}</span>
+        <button className="modal-close" onClick={onClose}>✕</button>
+      </div>
+      <div className="modal-body">{children}</div>
+    </div>
+  </div>;
+}
+function MCard({label,value,sub,color="#3b82f6"}){
+  return<div className="mini-stat" style={{background:color+"14",border:`1px solid ${color}22`}}>
+    <div className="label" style={{color}}>{label}</div>
+    <div className="val" style={{color}}>{value}</div>
+    {sub&&<div className="sub" style={{color}}>{sub}</div>}
+  </div>;
+}
+function BigCard({label,value,sub,color,accent}){
+  return<div className="stat-card card-auto">
+    <div className="label">{label}</div>
+    <div className="val" style={{color}}>{value}</div>
+    {sub&&<div className="sub">{sub}</div>}
+    {accent&&<div style={{height:3,background:color,borderRadius:2,marginTop:8,width:accent+"%"}}/>}
+  </div>;
+}
+function Bar({pct,color}){
+  const fill=color||"linear-gradient(90deg,#ff5f7e,#ff9eaa)";
+  return<div className="prog-track">
+    <div className="prog-fill" style={{background:fill,width:`${Math.min(100,Math.max(0,pct||0))}%`}}/>
+  </div>;
+}
+function Divider(){return<div style={{height:1,background:"var(--c-border)",margin:"10px 0"}}/>;}
+
+// วงกลมคะแนนเครดิต
+function CreditRing({pct,level,color,size=72,showStats,onTime,late,avgLate}){
+const r=size/2-7;
+const circ=2*Math.PI*r;
+const strokeW=size<60?7:size<90?9:11;
+const filled=pct!=null?circ*(pct/100):0;
+const gradId=`cg${size}${Math.round(pct||0)}`;
+// สี gradient ตาม level
+const grad={
+“ดีมาก”:[”#10b981”,”#34d399”],
+“ดี”:[”#22c55e”,”#86efac”],
+“ปานกลาง”:[”#f59e0b”,”#fcd34d”],
+“แย่”:[”#ef4444”,”#fca5a5”],
+}[level]||[”#94a3b8”,”#cbd5e1”];
+
+return<div style={{display:“flex”,flexDirection:“column”,alignItems:“center”,gap:6}}>
+<div className="credit-ring-wrap" style={{width:size,height:size,flexShrink:0}}>
+<svg width={size} height={size}>
+<defs>
+<linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stopColor={grad[0]}/>
+<stop offset="100%" stopColor={grad[1]}/>
+</linearGradient>
+</defs>
+{/* track */}
+<circle cx={size/2} cy={size/2} r={r} fill="none"
+stroke="var(--c-panel)" strokeWidth={strokeW}/>
+{/* filled arc — rotate -90deg via transform on circle */}
+{pct!=null&&pct>0&&<circle cx={size/2} cy={size/2} r={r} fill=“none”
+stroke={`url(#${gradId})`} strokeWidth={strokeW}
+strokeDasharray={`${filled} ${circ}`}
+strokeDashoffset={0}
+strokeLinecap=“round”
+transform={`rotate(-90 ${size/2} ${size/2})`}
+style={{transition:“stroke-dasharray .6s cubic-bezier(.4,0,.2,1)”}}/>}
+</svg>
+<div style={{position:“absolute”,inset:0,display:“flex”,flexDirection:“column”,
+alignItems:“center”,justifyContent:“center”}}>
+{pct!=null
+?<><span style={{fontSize:size<60?11:size<90?15:20,fontWeight:900,
+color:grad[0],lineHeight:1}}>{pct}%</span>
+{size>=80&&<span style={{fontSize:9,color:“var(–c-sub)”,marginTop:1,fontWeight:700}}>{level}</span>}</>
+:<span style={{fontSize:10,color:“var(–c-sub)”}}>—</span>}
+</div>
+</div>
+{showStats&&pct!=null&&<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr 1fr”,gap:4,width:“100%”}}>
+<div style={{textAlign:“center”,background:grad[0]+“15”,borderRadius:8,padding:“5px 0”}}>
+<div style={{fontSize:14,fontWeight:900,color:grad[0]}}>{onTime||0}</div>
+<div style={{fontSize:9,color:“var(–c-sub)”}}>ตรงเวลา</div>
+</div>
+<div style={{textAlign:“center”,background:”#ef444415”,borderRadius:8,padding:“5px 0”}}>
+<div style={{fontSize:14,fontWeight:900,color:”#ef4444”}}>{late||0}</div>
+<div style={{fontSize:9,color:“var(–c-sub)”}}>สายชำระ</div>
+</div>
+<div style={{textAlign:“center”,background:”#f59e0b15”,borderRadius:8,padding:“5px 0”}}>
+<div style={{fontSize:14,fontWeight:900,color:”#f59e0b”}}>{avgLate||0}</div>
+<div style={{fontSize:9,color:“var(–c-sub)”}}>วัน/ครั้ง</div>
+</div>
+</div>}
+
+  </div>;
+}
+
+function DebtCard({d,s,c,schedule,allPayments,setModal,onDelPayment,onDelDebt}){
+const [open,setOpen]=useState(false);
+const pct=d.creditPrice>0?(s.totalPaid/d.creditPrice)*100:0;
+const todayStr=today();
+const overdue=getOverdue(d,schedule,allPayments,todayStr);
+const upcoming=schedule.filter(x=>x.date>todayStr&&x.date<=addDays(todayStr,7));
+const overdueAmt=overdue.reduce((a,x)=>a+x.amtDue,0);
+
+return<div className=“card-auto” style={{background:”#fff”,borderRadius:16,padding:14,marginBottom:10,
+boxShadow:“0 4px 12px rgba(140,90,101,0.04)”,borderLeft:`4px solid ${overdueAmt>0?"#ef4444":"#ffdce3"}`}}>
+<div style={{display:“flex”,justifyContent:“space-between”,alignItems:“flex-start”,marginBottom:8}}>
+<div>
+<div style={{fontWeight:800,fontSize:14,color:”#8c5a65”}}>{c?.name||“ไม่ระบุ”}</div>
+<div style={{display:“flex”,gap:4,flexWrap:“wrap”,marginTop:3}}>
+<Tag type={d.creditType}/>
+{d.schedule&&<PTag mode={d.schedule.payMode}/>}
+{d.schedule&&<FTag freq={d.schedule.freq}/>}
+</div>
+{d.note&&<div style={{fontSize:11,color:”#b07d89”,marginTop:2}}>{d.note}</div>}
+</div>
+<div style={{textAlign:“right”,marginLeft:8,flexShrink:0}}>
+<div style={{fontSize:13,fontWeight:800,color:s.remaining>0?”#ef4444”:”#10b981”}}>
+{s.remaining>0?`ค้าง ฿${fmt(s.remaining)}`:“✅ หมดหนี้”}
+</div>
+<div style={{fontSize:11,color:”#b07d89”}}>จาก ฿{fmt(d.creditPrice)}</div>
+</div>
+</div>
+
+```
+{overdueAmt>0&&<div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:12,
+    padding:"8px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+  <div>
+    <div style={{fontSize:11,fontWeight:700,color:"#b91c1c"}}>⚠️ ค้างชำระ {overdue.length} งวด</div>
+    <div style={{fontSize:10,color:"#ef4444"}}>รวม ฿{fmt(overdueAmt)}</div>
+  </div>
+  <Btn small color="#ef4444" onClick={()=>setModal({type:"addPayment",data:d})}>รับเงินด่วน</Btn>
+</div>}
+
+{upcoming.length>0&&overdueAmt===0&&<div style={{background:"#fffbeb",border:"1px solid #fde68a",
+    borderRadius:12,padding:"7px 12px",marginBottom:8,fontSize:11,color:"#92400e"}}>
+  📅 นัดชำระใน 7 วัน: {upcoming.map(u=>`${thDate(u.date)} ฿${fmt(u.amtDue)}`).join(", ")}
+</div>}
+
+<Bar pct={pct}/>
+<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#b07d89",marginTop:3,marginBottom:10}}>
+  <span>ชำระแล้ว {Math.round(pct)}% (฿{fmt(s.totalPaid)})</span>
+  <span>{d.schedule?.payMode==="interest_only"?"จ่ายแต่ดอก":d.totalInstallments+"งวด"}</span>
+</div>
+
+<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:10}}>
+  <MCard label="ทุนแม่"  value={`฿${fmt(d.principalMom||0)}`}  color="#8b5cf6"/>
+  <MCard label="ทุนเรา"  value={`฿${fmt(d.principalUs||0)}`}   color="#3b82f6"/>
+  <MCard label="กำไรแม่" value={`฿${fmt(s.momProfitEarned)}`}  color="#a855f7"/>
+  <MCard label="กำไรเรา" value={`฿${fmt(s.usProfitEarned)}`}   color="#10b981"/>
+</div>
+
+<button onClick={()=>setOpen(x=>!x)} style={{background:"#fff0f3",borderRadius:10,
+    padding:"5px 10px",fontSize:11,cursor:"pointer",color:"#b07d89",marginBottom:8,width:"100%",border:"1px solid #ffdce3"}}>
+  {open?"▲ ซ่อนรายละเอียด":"▼ ดูประวัติ & ตารางนัด"} ({s.payments.length} รายการ)
+</button>
+
+{open&&<div>
+  {schedule.length>0&&<div style={{marginBottom:12}}>
+    <div style={{fontSize:12,fontWeight:700,color:"#8c5a65",marginBottom:6}}>📋 ตารางนัดชำระ (30 วันข้างหน้า)</div>
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+        <thead>
+          <tr style={{background:"#fff0f3"}}>
+            {["วันที่","ยอดนัด","สถานะ","หมายเหตุ"].map(h=>
+              <th key={h} style={{padding:"5px 8px",textAlign:"left",color:"#8c5a65",fontWeight:700,borderBottom:"1px solid #ffdce3"}}>{h}</th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {schedule.filter(s=>s.date>=addDays(today(),-7)&&s.date<=addDays(today(),30)).map((s,i)=>{
+            const paid=allPayments.filter(p=>p.debtId===d.id&&p.date===s.date);
+            const paidAmt=paid.reduce((a,p)=>a+p.amount,0);
+            const isOverdue=s.date<today()&&paidAmt<s.amtDue;
+            const isDue=s.date===today();
+            const isFuture=s.date>today();
+            return<tr key={i} style={{background:isOverdue?"#fef2f2":isDue?"#fffbeb":"transparent"}}>
+              <td style={{padding:"5px 8px",fontWeight:isDue?700:400,
+                color:isOverdue?"#b91c1c":isDue?"#92400e":"#8c5a65"}}>{thDate(s.date)}</td>
+              <td style={{padding:"5px 8px",fontWeight:700}}>฿{fmt(s.amtDue)}</td>
+              <td style={{padding:"5px 8px"}}>
+                {isOverdue&&<span style={{color:"#ef4444",fontWeight:700}}>⚠️ค้าง</span>}
+                {isDue&&<span style={{color:"#f59e0b",fontWeight:700}}>📌วันนี้</span>}
+                {isFuture&&paidAmt===0&&<span style={{color:"#b07d89"}}>—</span>}
+                {paidAmt>0&&<span style={{color:"#10b981",fontWeight:700}}>✅฿{fmt(paidAmt)}</span>}
+              </td>
+              <td style={{padding:"5px 8px",color:"#b07d89"}}>{s.label||""}</td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>
+  </div>}
+
+  {s.payments.length>0&&<div style={{borderTop:"1px solid #ffdce3",paddingTop:8,marginBottom:8}}>
+    <div style={{fontSize:12,fontWeight:700,color:"#8c5a65",marginBottom:6}}>💰 ประวัติรับเงิน</div>
+    {s.payments.map(p=>{
+      const sp=calcSplit(d);
+      return<div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+          fontSize:11,padding:"5px 0",borderBottom:"1px solid #fff0f3"}}>
+        <div>
+          <span style={{color:"#8c5a65",fontWeight:600}}>{thDate(p.date)}</span>
+          {p.note&&<span style={{color:"#b07d89"}}> · {p.note}</span>}
+          {p.payType&&<span style={{color:"#8b5cf6",marginLeft:4}}>[{p.payType==="interest_only"?"ดอก":"ต้น+ดอก"}]</span>}
+        </div>
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          <span style={{fontWeight:800}}>฿{fmt(p.amount)}</span>
+          <button onClick={()=>setModal({type:"editPayment",data:{payment:p,debt:d}})}
+            style={{background:"#fff0f3",border:"1px solid #ffdce3",borderRadius:6,padding:"2px 7px",fontSize:10,cursor:"pointer",color:"#b07d89"}}>แก้</button>
+          <button onClick={()=>{if(confirm("ลบรายการนี้?"))onDelPayment(p.id)}}
+            style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"2px 7px",fontSize:10,cursor:"pointer",color:"#ef4444"}}>ลบ</button>
+        </div>
+      </div>;
+    })}
+  </div>}
+</div>}
+
+<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+  <Btn small color="#10b981" onClick={()=>setModal({type:"addPayment",data:d})}>+ รับเงิน</Btn>
+  <Btn small color="#6366f1" outline onClick={()=>setModal({type:"editDebt",data:d})}>แก้ไข</Btn>
+  <Btn small color="#f97316" outline onClick={()=>setModal({type:"editSchedule",data:d})}>⏰ ตารางนัด</Btn>
+  <Btn small color="#ef4444" outline onClick={()=>{if(confirm("ลบบัญชีนี้ทั้งหมด?"))onDelDebt(d.id)}}>ลบ</Btn>
+</div>
+```
+
+  </div>;
+}
+
+function CustomerCard({c,debts,debtStats,allPayments,setModal}){
+const [open,setOpen]=useState(false);
+const cDebts=debts.filter(d=>d.customerId===c.id);
+const outstanding=cDebts.reduce((a,d)=>a+(debtStats[d.id]?.remaining||0),0);
+const activeDebts=cDebts.filter(d=>(debtStats[d.id]?.remaining||0)>0);
+const doneDebts=cDebts.filter(d=>(debtStats[d.id]?.remaining||0)<=0);
+const overdueDebts=activeDebts.filter(d=>(debtStats[d.id]?.overdueAmt||0)>0);
+const score=calcCreditScore(cDebts,allPayments);
+const isBadDebt=cDebts.some(d=>d.creditType===“bad_debt”&&(debtStats[d.id]?.remaining||0)>0);
+const creditLimit=c.creditLimit||0;
+
+return<div className=“card-auto” style={{background:“var(–c-card)”,borderRadius:“var(–radius-md)”,
+padding:“12px 14px”,marginBottom:8,boxShadow:“var(–shadow-sm)”,border:`1px solid ${isBadDebt?"#ef444440":"var(--c-border)"}`}}>
+
+```
+{/* หัว: กดเพื่อ expand */}
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+    cursor:"pointer",gap:8}} onClick={()=>setOpen(x=>!x)}>
+  <div style={{flex:1,minWidth:0}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+      <span style={{fontWeight:800,fontSize:14,color:"var(--c-text)"}}>{c.name}</span>
+      {isBadDebt&&<span style={{fontSize:9,background:"#ef444420",color:"#ef4444",
+          borderRadius:5,padding:"1px 6px",fontWeight:800,border:"1px solid #ef444430"}}>⚠️ เครดิตเสีย</span>}
+      <span style={{fontSize:9,background:score.color+"18",color:score.color,
+          borderRadius:5,padding:"1px 6px",fontWeight:800,border:`1px solid ${score.color}30`}}>{score.level}</span>
+    </div>
+    <div style={{fontSize:10,color:"var(--c-sub)",marginTop:2}}>
+      {c.phone||"ไม่มีเบอร์"} · {cDebts.length} บิล
+      {activeDebts.length>0&&<span style={{color:"#ef4444"}}> · ค้าง {activeDebts.length}</span>}
+      {doneDebts.length>0&&<span style={{color:"#10b981"}}> · ครบ {doneDebts.length}</span>}
+    </div>
+  </div>
+  <div style={{textAlign:"right",flexShrink:0}}>
+    <div style={{fontSize:14,fontWeight:900,color:outstanding>0?"#ef4444":"#10b981"}}>
+      {outstanding>0?`฿${fmt(outstanding)}`:"✅ หมด"}
+    </div>
+    {creditLimit>0&&<div style={{fontSize:9,color:"var(--c-sub)"}}>
+      วงเงิน ฿{fmt(creditLimit)}
+    </div>}
+    <span style={{fontSize:12,color:"var(--c-sub)"}}>{open?"▲":"▼"}</span>
+  </div>
+</div>
+
+{open&&<div style={{marginTop:10,borderTop:"1px solid var(--c-border)",paddingTop:10}}>
+
+  {/* ข้อมูลติดต่อ */}
+  {(c.line||c.facebook||c.idCard||c.address)&&
+    <div style={{background:"var(--c-panel)",borderRadius:"var(--radius-sm)",
+        padding:"8px 10px",marginBottom:10,fontSize:11,color:"var(--c-sub)"}}>
+      {c.line&&<div>💬 Line: <strong style={{color:"var(--c-text)"}}>{c.line}</strong></div>}
+      {c.facebook&&<div>📘 FB: <strong style={{color:"var(--c-text)"}}>{c.facebook}</strong></div>}
+      {c.idCard&&<div>🪪 บัตร: <strong style={{color:"var(--c-text)"}}>{c.idCard}</strong></div>}
+      {c.address&&<div>🏠 ที่อยู่: <strong style={{color:"var(--c-text)"}}>{c.address}</strong></div>}
+    </div>}
+
+  {/* Credit score ring */}
+  {score.pct!=null&&<div style={{display:"flex",alignItems:"center",gap:10,
+      background:`linear-gradient(135deg,${score.color}10,${score.color}05)`,
+      borderRadius:"var(--radius-sm)",padding:"8px 10px",marginBottom:10,
+      border:`1px solid ${score.color}25`}}>
+    <CreditRing pct={score.pct} level={score.level} color={score.color} size={56}/>
+    <div>
+      <div style={{fontSize:12,fontWeight:800,color:score.color}}>{score.level}</div>
+      <div style={{fontSize:10,color:"var(--c-sub)"}}>ตรงเวลา {score.pct}% · สาย {score.avgLate||0} วัน/ครั้ง</div>
+    </div>
+  </div>}
+
+  {/* บิลทั้งหมด — compact rows */}
+  {cDebts.length===0&&<div style={{color:"var(--c-sub)",fontSize:11,padding:"8px 0"}}>ยังไม่มีบิล</div>}
+  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+    {cDebts.map(d=>{
+      const s=debtStats[d.id];
+      const rem=s?.remaining||0;
+      const over=s?.overdueAmt||0;
+      const pct=d.creditPrice>0?Math.min(100,(s?.totalPaid||0)/d.creditPrice*100):0;
+      const sp=calcSplit(d);
+      return<div key={d.id} style={{background:"var(--c-panel)",borderRadius:"var(--radius-sm)",
+          padding:"9px 11px",border:`1px solid ${over>0?"#ef444430":"var(--c-border)"}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:5}}>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+            <Tag type={d.creditType}/>
+            {d.note&&<span style={{fontSize:9,color:"var(--c-sub)"}}>· {d.note}</span>}
+          </div>
+          <span style={{fontSize:12,fontWeight:800,color:rem>0?"#ef4444":"#10b981",flexShrink:0}}>
+            {rem>0?`฿${fmt(rem)}`:"✅"}
+          </span>
+        </div>
+        <Bar pct={pct}/>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:3,marginTop:5}}>
+          <MCard label="ทุนแม่"   value={`฿${fmt(d.principalMom||0)}`}  color="#8b5cf6"/>
+          <MCard label="ทุนเรา"   value={`฿${fmt(d.principalUs||0)}`}   color="#3b82f6"/>
+          <MCard label="กำไรแม่"  value={`฿${fmt(s?.momProfitEarned||0)}`}color="#a855f7"/>
+          <MCard label="กำไรเรา"  value={`฿${fmt(s?.usProfitEarned||0)}`} color="#10b981"/>
+        </div>
+        {over>0&&<div style={{fontSize:10,color:"#ef4444",fontWeight:700,marginTop:4}}>
+          ⚠️ ค้างเกินกำหนด ฿{fmt(over)}
+        </div>}
+        <div style={{display:"flex",gap:5,marginTop:6}}>
+          <Btn small color="#10b981" onClick={()=>setModal({type:"addPayment",data:d})}>รับเงิน</Btn>
+          <Btn small color="#f59e0b" outline onClick={()=>setModal({type:"billing",data:d,cust:c})}>วางบิล</Btn>
+          <Btn small color="#6366f1" outline onClick={()=>setModal({type:"editDebt",data:d})}>แก้ไข</Btn>
+        </div>
+      </div>;
+    })}
+  </div>
+
+  <div style={{display:"flex",gap:6,marginTop:8}}>
+    <Btn small color="#6366f1" onClick={()=>setModal({type:"editCustomer",data:c})}>แก้ไขลูกค้า</Btn>
+    <Btn small danger outline onClick={()=>setModal({type:"deleteCustomer",data:c})}>ลบ</Btn>
+  </div>
+</div>}
+```
+
+  </div>;
+}
+
+function App(){
+// ── AUTH STATE ──
+const [authUser,setAuthUser]=useState(null);       // Firebase user object
+const [authLoading,setAuthLoading]=useState(true); // กำลังเช็ค auth
+const [syncStatus,setSyncStatus]=useState(“idle”); // idle | syncing | synced | error
+const [lastSynced,setLastSynced]=useState(null);
+
+// ── DATA STATE: โหลดจาก localStorage (UID-scoped เมื่อ login, fallback ไป legacy key) ──
+const loadData=(uid)=>({
+customers: lsLoadU(“customers”,[],uid),
+debts:     lsLoadU(“debts”,[],uid).map(normalizeDebt),
+payments:  lsLoadU(“payments”,[],uid).map(normalizePayment),
+sales:     lsLoadU(“sales”,[],uid).map(normalizeSale),
+products:  lsLoadU(“products”,[],uid),
+wallet:    normalizeWallet(lsLoadU(“wallet”,{seedCash:0,entries:[]},uid)),
+settings:  lsLoadU(“settings”,{dailyGoal:8000,shopName:“ร้านของฉัน”},uid),
+});
+
+const [customers,setCustomers]=useState(()=>lsLoad(“customers”,[]));
+const [debts,setDebts]=useState(()=>lsLoad(“debts”,[]).map(normalizeDebt));
+const [payments,setPayments]=useState(()=>lsLoad(“payments”,[]).map(normalizePayment));
+const [sales,setSales]=useState(()=>lsLoad(“sales”,[]).map(normalizeSale));
+const [products,setProducts]=useState(()=>lsLoad(“products”,[]));
+const [wallet,setWallet]=useState(()=>normalizeWallet(lsLoad(“wallet”,{seedCash:0,entries:[]})));
+const [settings,setSettings]=useState(()=>lsLoad(“settings”,{dailyGoal:8000,shopName:“ร้านของฉัน”}));
+const [darkMode,setDarkMode]=useState(()=>lsLoad(“darkMode”,false));
+const [tab,setTab]=useState(“dashboard”);
+const [modal,setModal]=useState(null);
+const [search,setSearch]=useState(””);
+const [alertDate,setAlertDate]=useState(today());
+const [sidebarOpen,setSidebarOpen]=useState(false);
+
+// ── AUTH LISTENER ──
+useEffect(()=>{
+const unsub=window._fbAuth.onAuthStateChanged(async user=>{
+setAuthUser(user);
+setAuthLoading(false);
+if(user){
+_currentUid=user.uid;
+setSyncStatus(“syncing”);
+// Pull ข้อมูลจาก cloud ก่อน
+try{
+const data=await syncDown(user.uid);
+if(data){
+// มีข้อมูล cloud → โหลดลงใน state
+if(data.customers) setCustomers(data.customers);
+if(data.debts)     setDebts((data.debts||[]).map(normalizeDebt));
+if(data.payments)  setPayments((data.payments||[]).map(normalizePayment));
+if(data.sales)     setSales((data.sales||[]).map(normalizeSale));
+if(data.products)  setProducts(data.products||[]);
+if(data.wallet)    setWallet(normalizeWallet(data.wallet));
+if(data.settings)  setSettings(s=>({…s,…data.settings}));
+} else {
+// ไม่มี cloud data → push ข้อมูล local ขึ้นไป (migration)
+const local=loadData(null);
+SYNC_KEYS.forEach(k=>lsSaveU(k,local[k],user.uid));
+scheduleSyncUp(user.uid);
+}
+setSyncStatus(“synced”); setLastSynced(new Date());
+}catch(e){ setSyncStatus(“error”); }
+// Subscribe realtime
+return subscribeRealtime(user.uid,data=>{
+if(data.customers) setCustomers(data.customers);
+if(data.debts)     setDebts((data.debts||[]).map(normalizeDebt));
+if(data.payments)  setPayments((data.payments||[]).map(normalizePayment));
+if(data.sales)     setSales((data.sales||[]).map(normalizeSale));
+if(data.products)  setProducts(data.products||[]);
+if(data.wallet)    setWallet(normalizeWallet(data.wallet));
+if(data.settings)  setSettings(s=>({…s,…data.settings}));
+setSyncStatus(“synced”); setLastSynced(new Date());
+});
+} else {
+_currentUid=null;
+setSyncStatus(“idle”);
+}
+});
+return ()=>unsub();
+},[]);
+
+// ── LOCAL SAVE + TRIGGER CLOUD SYNC ──
+const uid=authUser?.uid||null;
+useEffect(()=>{ lsSaveU(“customers”,customers,uid); scheduleSyncUp(uid); },[customers]);
+useEffect(()=>{ lsSaveU(“debts”,debts,uid); scheduleSyncUp(uid); },[debts]);
+useEffect(()=>{ lsSaveU(“payments”,payments,uid); scheduleSyncUp(uid); },[payments]);
+useEffect(()=>{ lsSaveU(“sales”,sales,uid); scheduleSyncUp(uid); },[sales]);
+useEffect(()=>{ lsSaveU(“products”,products,uid); scheduleSyncUp(uid); },[products]);
+useEffect(()=>{ lsSaveU(“wallet”,wallet,uid); scheduleSyncUp(uid); },[wallet]);
+useEffect(()=>{ lsSaveU(“settings”,settings,uid); scheduleSyncUp(uid); },[settings]);
+useEffect(()=>{lsSave(“darkMode”,darkMode);
+document.body.classList.toggle(“dark”,darkMode);
+},[darkMode]);
+
+const closeModal=()=>setModal(null);
+const custMap=useMemo(()=>Object.fromEntries(customers.map(c=>[c.id,c])),[customers]);
+const debtMap=useMemo(()=>Object.fromEntries(debts.map(d=>[d.id,d])),[debts]);
+
+const schedules=useMemo(()=>{
+const m={};
+debts.forEach(d=>{m[d.id]=buildSchedule(d,payments);});
+return m;
+},[debts,payments]);
+
+const dStats=useMemo(()=>{
+const s={};
+debts.forEach(d=>{
+const sp=calcSplit(d);
+const ps=payments.filter(p=>p.debtId===d.id);
+const paid=ps.reduce((a,p)=>a+p.amount,0);
+const isIntOnly=d.schedule?.payMode===“interest_only”;
+// interest-only: ยอดต้นไม่ลดจากการจ่ายดอก — ต้นลดเฉพาะ payType !== interest_only
+const principalPaid=isIntOnly
+? ps.filter(p=>p.payType!==“interest_only”).reduce((a,p)=>a+p.amount,0)
+: paid;
+const remaining=Math.max(0,d.creditPrice-principalPaid);
+// overdue ใช้ full schedule (ไม่จำกัด horizon) เพื่อความแม่นยำ
+const fullSched=buildFullSchedule(d);
+const overdueList=getOverdue(d,fullSched,payments,today());
+const overdueAmt=overdueList.reduce((a,x)=>a+x.amtDue,0);
+s[d.id]={…sp,
+totalPaid:paid, principalPaid, remaining,
+momCapReturned:principalPaid*sp.momRatio,
+usCapReturned:principalPaid*sp.usRatio,
+// กำไรแม่/เรา: คำนวณจาก paid จริงทั้งหมด (ทั้งต้นและดอก) เพราะ profit ratio ถูก embed ไว้แล้ว
+momProfitEarned:paid*sp.momProfitRatio,
+usProfitEarned:paid*sp.usProfitRatio,
+installAmt:Math.round((d.creditPrice/(d.totalInstallments||1))*100)/100,
+payments:ps,
+overdueAmt,
+overdueCount:overdueList.length,
+};
+});return s;
+},[debts,payments]);
+
+const totals=useMemo(()=>{
+let momCap=0,usCap=0,momP=0,usP=0,outstanding=0,overdueTotal=0;
+debts.forEach(d=>{
+momCap+=d.principalMom||0; usCap+=d.principalUs||0;
+outstanding+=dStats[d.id]?.remaining||0;
+overdueTotal+=dStats[d.id]?.overdueAmt||0;
+});
+Object.values(dStats).forEach(s=>{momP+=s.momProfitEarned;usP+=s.usProfitEarned;});
+const sRev=sales.reduce((a,s)=>a+s.revenue,0);
+const sCost=sales.reduce((a,s)=>a+s.cost,0);
+return{momCap,usCap,momP,usP,outstanding,overdueTotal,sRev,sCost,sProfit:sRev-sCost};
+},[debts,dStats,sales]);
+
+const monthly=useMemo(()=>{
+const empty=()=>({
+// เงินเข้า (cash basis = รับจริง)
+income:0,          // รวมรับจากลูกหนี้
+incomeCapMom:0,    // ส่วนทุนแม่ที่ได้คืน
+incomeCapUs:0,     // ส่วนทุนเราที่ได้คืน
+incomeProfitMom:0, // กำไรแม่
+incomeProfitUs:0,  // กำไรเรา
+sRev:0,            // รายได้ขายสด
+sCost:0,           // ต้นทุนขายสด (เงินออก)
+sProfit:0,
+// เงินออก
+outLoanMom:0,      // ทุนแม่ที่ปล่อยสินเชื่อใหม่เดือนนี้
+outLoanUs:0,       // ทุนเราที่ปล่อยสินเชื่อใหม่
+// accrual (นัดชำระ ไม่ว่าจะได้รับจริงหรือไม่)
+accrualDue:0,      // ยอดที่ควรได้รับตามนัด (accrual)
+cnt:0,
+});
+const map={};
+const ensure=k=>{if(!map[k])map[k]=empty();};
+
+```
+// เงินเข้า จริง (cash basis)
+payments.forEach(p=>{
+  const d=debtMap[p.debtId];if(!d)return;
+  const sp=calcSplit(d);const k=mKey(p.date);
+  ensure(k);
+  map[k].income+=p.amount;
+  map[k].incomeCapMom+=p.amount*sp.momRatio;
+  map[k].incomeCapUs+=p.amount*sp.usRatio;
+  map[k].incomeProfitMom+=p.amount*sp.momProfitRatio;
+  map[k].incomeProfitUs+=p.amount*sp.usProfitRatio;
+  map[k].cnt++;
+});
+
+// ขายสด
+sales.forEach(s=>{
+  const k=mKey(s.date);
+  ensure(k);
+  map[k].sRev+=s.revenue;
+  map[k].sCost+=s.cost||0;
+  map[k].sProfit+=s.revenue-(s.cost||0);
+});
+
+// เงินออก: ทุนที่ปล่อยสินเชื่อใหม่ (วันเริ่มต้นของบัญชี)
+debts.forEach(d=>{
+  const k=mKey(d.startDate);if(!k)return;
+  ensure(k);
+  map[k].outLoanMom+=d.principalMom||0;
+  map[k].outLoanUs+=d.principalUs||0;
+});
+
+// accrual: ยอดที่ถึงกำหนดตามตาราง (build จาก debt โดยตรง ไม่ใช้ schedules ที่จำกัด 30 วัน)
+debts.forEach(d=>{
+  const sc=d.schedule;
+  if(!sc)return;
+  if(sc.freq==="custom"){
+    // custom dates — นับทุก date ที่กำหนด
+    (sc.customDates||[]).forEach(cd=>{
+      const k=mKey(cd.date);if(!k)return;
+      ensure(k);
+      map[k].accrualDue+=cd.amount||0;
+    });
+  } else {
+    // regular schedule — loop ตาม totalInstallments จริง
+    if(!sc.startDate)return;
+    const installAmt=sc.payMode==="interest_only"
+      ? +(d.interestAmt||0)
+      : +(d.creditPrice/(d.totalInstallments||1)).toFixed(2);
+    let cur=sc.startDate;
+    const total=sc.payMode==="interest_only"
+      ? (d.totalInstallments||1)
+      : (d.totalInstallments||1);
+    for(let i=0;i<total&&i<500;i++){
+      const k=mKey(cur);
+      ensure(k);
+      map[k].accrualDue+=installAmt;
+      if(sc.freq==="daily")   cur=addDays(cur,1);
+      else if(sc.freq==="weekly")  cur=addWeeks(cur,1);
+      else if(sc.freq==="monthly") cur=addMonths(cur,1);
+      else break;
+    }
+  }
+});
+
+return Object.entries(map)
+  .sort((a,b)=>b[0].localeCompare(a[0]))
+  .map(([k,v])=>({
+    key:k, label:mLabel(k), ...v,
+    // สรุปรวม
+    totalIn: v.income + v.sRev,
+    totalOut: v.outLoanMom + v.outLoanUs + v.sCost,
+    get netCash(){ return this.totalIn - this.totalOut; },
+    // เฉพาะกำไรแท้ (ไม่นับการคืนทุน)
+    trueProfit: v.incomeProfitMom + v.incomeProfitUs + v.sProfit,
+    // ยอดภาษี cash basis = เงินรับจริงทั้งหมด
+    taxCashBasis: v.income + v.sRev,
+    // ยอดภาษี accrual = ยอดที่ครบกำหนด
+    taxAccrual: v.accrualDue + v.sRev,
+  }));
+```
+
+},[payments,sales,debts,debtMap]);
+
+const analysis=useMemo(()=>{
+const n=monthly.length||1;
+const sum=(f)=>monthly.reduce((a,m)=>a+(m[f]||0),0);
+const avg=(f)=>sum(f)/n;
+
+```
+const avgTotalIn   = avg("totalIn");
+const avgTotalOut  = avg("totalOut");
+const avgNetCash   = avgTotalIn - avgTotalOut;
+const avgIncome    = avg("income");
+const avgSRev      = avg("sRev");
+const avgSCost     = avg("sCost");
+const avgCapMomIn  = avg("incomeCapMom");
+const avgCapUsIn   = avg("incomeCapUs");
+const avgProfitMom = avg("incomeProfitMom");
+const avgProfitUs  = avg("incomeProfitUs");
+const avgOutLoanMom= avg("outLoanMom");
+const avgOutLoanUs = avg("outLoanUs");
+const avgTrueProfit= avg("trueProfit");
+const avgTaxCash   = avg("taxCashBasis");
+const avgTaxAccrual= avg("taxAccrual");
+
+const usCapOut=totals.usCap-Object.values(dStats).reduce((a,s)=>a+s.usCapReturned,0);
+const safe=Math.max(0,avgCapUsIn*0.8);
+
+return{
+  avgTotalIn,avgTotalOut,avgNetCash,
+  avgIncome,avgSRev,avgSCost,
+  avgCapMomIn,avgCapUsIn,avgProfitMom,avgProfitUs,
+  avgOutLoanMom,avgOutLoanUs,avgTrueProfit,
+  avgTaxCash,avgTaxAccrual,
+  usCapOut,safe,
+};
+```
+
+},[monthly,totals,dStats]);
+
+const alertItems=useMemo(()=>{
+const result=[];
+debts.forEach(d=>{
+if((dStats[d.id]?.remaining||0)<=0)return;
+const fullSched=buildFullSchedule(d);
+const displaySched=buildSchedule(d,payments); // 30-day window for “due today”
+const due=displaySched.filter(s=>s.date===alertDate);
+const overdue=getOverdue(d,fullSched,payments,alertDate);
+if(due.length>0||overdue.length>0){
+result.push({debt:d,cust:custMap[d.customerId],due,overdue,
+dueAmt:due.reduce((a,x)=>a+x.amtDue,0),
+overdueAmt:overdue.reduce((a,x)=>a+x.amtDue,0)});
+}
+});
+return result.sort((a,b)=>b.overdueAmt-a.overdueAmt);
+},[debts,dStats,payments,alertDate,custMap]);
+
+const todayAlertCount=useMemo(()=>alertItems.filter(x=>x.dueAmt>0||x.overdueAmt>0).length,[alertItems]);
+
+const byType=useMemo(()=>{
+const m={};
+CREDIT_TYPES.forEach(ct=>{m[ct.value]={count:0,total:0,outstanding:0,momCap:0,usCap:0,momP:0,usP:0}});
+debts.forEach(d=>{
+const t=m[d.creditType];if(!t)return;const s=dStats[d.id];
+t.count++;t.total+=d.creditPrice;t.outstanding+=s.remaining;
+t.momCap+=d.principalMom||0;t.usCap+=d.principalUs||0;t.momP+=s.momProfitEarned;t.usP+=s.usProfitEarned;
+});return m;
+},[debts,dStats]);
+
+// ── DASHBOARD: สถิติวันนี้ + กราฟ 7 วันย้อนหลัง + แจ้งเตือนหลายระดับ ──
+const todayStr=today();
+
+const todayStats=useMemo(()=>{
+let received=0,newLoanMom=0,newLoanUs=0,newProfit=0,saleRev=0,saleProfit=0;
+payments.filter(p=>p.date===todayStr).forEach(p=>{
+const d=debtMap[p.debtId];if(!d)return;
+received+=p.amount;
+const sp=calcSplit(d);
+newProfit+=p.amount*(sp.momProfitRatio+sp.usProfitRatio);
+});
+debts.filter(d=>d.startDate===todayStr).forEach(d=>{
+newLoanMom+=d.principalMom||0; newLoanUs+=d.principalUs||0;
+});
+sales.filter(s=>s.date===todayStr).forEach(s=>{
+saleRev+=s.revenue; saleProfit+=s.revenue-(s.cost||0);
+});
+return{received,newLoanMom,newLoanUs,newLoan:newLoanMom+newLoanUs,
+profit:newProfit+saleProfit,saleRev,saleProfit};
+},[payments,debts,sales,debtMap,todayStr]);
+
+// กราฟ 7 วันย้อนหลัง: กำไรรายวัน, ยอดปล่อยรายวัน, รับเงินรายวัน
+const chart7d=useMemo(()=>{
+const days=[];
+for(let i=6;i>=0;i–) days.push(addDays(todayStr,-i));
+const profitArr=[],loanArr=[],receivedArr=[];
+days.forEach(day=>{
+let profit=0,received=0,loan=0;
+payments.filter(p=>p.date===day).forEach(p=>{
+const d=debtMap[p.debtId];if(!d)return;
+received+=p.amount;
+const sp=calcSplit(d);
+profit+=p.amount*(sp.momProfitRatio+sp.usProfitRatio);
+});
+sales.filter(s=>s.date===day).forEach(s=>{ profit+=s.revenue-(s.cost||0); });
+debts.filter(d=>d.startDate===day).forEach(d=>{ loan+=(d.principalMom||0)+(d.principalUs||0); });
+profitArr.push(profit); receivedArr.push(received); loanArr.push(loan);
+});
+return{days,labels:days.map(d=>{const[,m,dd]=d.split(”-”);return`${+dd}/${+m}`}),profitArr,loanArr,receivedArr};
+},[payments,sales,debts,debtMap,todayStr]);
+
+const alertLevels=useMemo(()=>{
+const dueToday=[],overdue7=[],overdue30=[],badDebt=[];
+debts.forEach(d=>{
+const rem=dStats[d.id]?.remaining||0;
+if(rem<=0)return;
+const fullSched=buildFullSchedule(d);
+const displaySched=buildSchedule(d,payments);
+const due=displaySched.filter(s=>s.date===todayStr);
+if(due.length>0){
+dueToday.push({debt:d,cust:custMap[d.customerId],amt:due.reduce((a,x)=>a+x.amtDue,0)});
+}
+const overdue=getOverdue(d,fullSched,payments,todayStr);
+if(overdue.length>0){
+const oldestDate=overdue.reduce((min,x)=>x.date<min?x.date:min,overdue[0].date);
+const daysLate=daysBetween(oldestDate,todayStr);
+const amt=overdue.reduce((a,x)=>a+x.amtDue,0);
+if(daysLate>=30) overdue30.push({debt:d,cust:custMap[d.customerId],amt,daysLate});
+else if(daysLate>=7) overdue7.push({debt:d,cust:custMap[d.customerId],amt,daysLate});
+else overdue7.push({debt:d,cust:custMap[d.customerId],amt,daysLate}); // 1-6 วัน ก็แจ้ง
+}
+if(d.creditType===“bad_debt”&&rem>0){
+badDebt.push({debt:d,cust:custMap[d.customerId],amt:rem});
+}
+});
+return{dueToday,overdue7,overdue30,badDebt};
+},[debts,dStats,payments,custMap,todayStr]);
+
+// รายการล่าสุดวันนี้: ใครโอน, ใครรับเครดิตใหม่, ใครครบกำหนด
+const todayActivity=useMemo(()=>{
+const transfers=payments.filter(p=>p.date===todayStr).map(p=>{
+const d=debtMap[p.debtId];
+return{…p,custName:custMap[d?.customerId]?.name||“ไม่ระบุ”};
+});
+const newCredits=debts.filter(d=>d.startDate===todayStr).map(d=>({
+…d,custName:custMap[d.customerId]?.name||“ไม่ระบุ”
+}));
+const dueTodayList=alertLevels.dueToday;
+return{transfers,newCredits,dueTodayList};
+},[payments,debts,debtMap,custMap,todayStr,alertLevels]);
+
+const monthProfitGoal=useMemo(()=>{
+const thisMonthKey=mKey(todayStr);
+const m=monthly.find(x=>x.key===thisMonthKey);
+const earned=m?(m.incomeProfitMom+m.incomeProfitUs+m.sProfit):0;
+const target=(settings.monthlyProfitGoal)||Math.max(1,settings.dailyGoal*25);
+return{earned,target,pct:Math.min(100,Math.round((earned/target)*100))};
+},[monthly,todayStr,settings]);
+
+// ── PIN LOCK ──
+const [pinLocked,setPinLocked]=useState(()=>{
+const pin=lsLoad(“pin”,””);
+return pin?true:false;
+});
+const [pinInput,setPinInput]=useState(””);
+const [pinError,setPinError]=useState(false);
+const checkPin=()=>{
+const saved=lsLoad(“pin”,””);
+if(pinInput===saved){setPinLocked(false);setPinInput(””);}
+else{setPinError(true);setPinInput(””);setTimeout(()=>setPinError(false),900);}
+};
+
+// ── DEBT FILTER ──
+const [debtFilter,setDebtFilter]=useState({type:””,status:””,mode:””});
+
+// ── CONFIRM DIALOG helper (replaces browser confirm) ──
+const [confirmDlg,setConfirmDlg]=useState(null); // {msg, onOk, danger}
+const confirm2=(msg,onOk,danger=true)=>setConfirmDlg({msg,onOk,danger});
+const closeConfirm=()=>setConfirmDlg(null);
+
+const filtC=useMemo(()=>{const q=search.toLowerCase();return customers.filter(c=>
+c.name.toLowerCase().includes(q)||(c.phone||””).includes(q)||
+(c.line||””).toLowerCase().includes(q)||(c.facebook||””).toLowerCase().includes(q)||
+(c.idCard||””).includes(q));},[customers,search]);
+
+const filtD=useMemo(()=>{
+const q=search.toLowerCase();
+return debts.filter(d=>{
+if(q&&!(custMap[d.customerId]?.name||””).toLowerCase().includes(q)&&!(d.note||””).toLowerCase().includes(q)) return false;
+if(debtFilter.type&&d.creditType!==debtFilter.type) return false;
+if(debtFilter.mode&&(d.splitMode||“shared”)!==debtFilter.mode) return false;
+if(debtFilter.status){
+const rem=dStats[d.id]?.remaining||0;
+const over=dStats[d.id]?.overdueAmt||0;
+if(debtFilter.status===“active”&&rem<=0) return false;
+if(debtFilter.status===“done”&&rem>0) return false;
+if(debtFilter.status===“overdue”&&over<=0) return false;
+}
+return true;
+});
+},[debts,search,custMap,debtFilter,dStats]);
+
+// ── คาดการณ์รายรับเดือนหน้า จากตารางนัดที่มี ──
+const forecastNextMonth=useMemo(()=>{
+const nm=addMonths(today(),1).slice(0,7); // “YYYY-MM”
+let total=0,count=0;
+debts.forEach(d=>{
+if((dStats[d.id]?.remaining||0)<=0) return;
+const fullSched=buildFullSchedule(d);
+fullSched.forEach(s=>{
+if(mKey(s.date)===nm){total+=s.amtDue;count++;}
+});
+});
+return{total,count,month:mLabel(nm)};
+},[debts,dStats]);
+
+const addC=f=>{setCustomers(p=>[…p,{id:genId(),…f}]);closeModal();};
+const updC=(id,f)=>{setCustomers(p=>p.map(c=>c.id===id?{…c,…f}:c));closeModal();};
+const delC=id=>{
+const dids=debts.filter(d=>d.customerId===id).map(d=>d.id);
+setPayments(p=>p.filter(x=>!dids.includes(x.debtId)));
+setDebts(p=>p.filter(d=>d.customerId!==id));
+setCustomers(p=>p.filter(c=>c.id!==id));closeModal();closeConfirm();
+};
+const addD=f=>{setDebts(p=>[…p,{id:genId(),…normalizeDebt(f)}]);closeModal();};
+const updD=(id,f)=>{setDebts(p=>p.map(d=>d.id===id?{…d,…normalizeDebt(f)}:d));closeModal();};
+const delD=id=>{setPayments(p=>p.filter(x=>x.debtId!==id));setDebts(p=>p.filter(d=>d.id!==id));closeConfirm();};
+const updSched=(id,sc)=>{setDebts(p=>p.map(d=>d.id===id?{…d,schedule:sc}:d));closeModal();};
+const addP=f=>{setPayments(p=>[…p,{id:genId(),…normalizePayment(f)}]);closeModal();};
+const updP=(id,f)=>{setPayments(p=>p.map(x=>x.id===id?{…x,…normalizePayment(f)}:x));closeModal();};
+const delP=id=>{setPayments(p=>p.filter(x=>x.id!==id));closeConfirm();};
+const addS=f=>{setSales(p=>[…p,{id:genId(),…normalizeSale(f)}]);closeModal();};
+const updS=(id,f)=>{setSales(p=>p.map(s=>s.id===id?{…s,…normalizeSale(f)}:s));closeModal();};
+const delS=id=>{setSales(p=>p.filter(s=>s.id!==id));closeConfirm();};
+
+const addPr=f=>{setProducts(p=>[…p,{id:genId(),…f}]);closeModal();};
+const updPr=(id,f)=>{setProducts(p=>p.map(x=>x.id===id?{…x,…f}:x));closeModal();};
+const delPr=id=>setProducts(p=>p.filter(x=>x.id!==id));
+
+// ── WALLET: เพิ่ม/ถอนทุนมือ ──
+const addWalletEntry=f=>{
+setWallet(w=>({…w,entries:[…w.entries,{id:genId(),date:today(),…f,amount:toN(f.amount)}]}));
+closeModal();
+};
+const delWalletEntry=id=>setWallet(w=>({…w,entries:w.entries.filter(e=>e.id!==id)}));
+const setSeedCash=amt=>setWallet(w=>({…w,seedCash:toN(amt)}));
+
+// คำนวณยอดกระเป๋าทั้งหมด: ต้นทุนตั้งต้น + manual entries + auto (รับชำระ − ปล่อยสินเชื่อ)
+const walletBalance=useMemo(()=>{
+const seed=wallet.seedCash||0;
+// manual entries
+const manualIn=wallet.entries.filter(e=>e.dir===“in”).reduce((a,e)=>a+e.amount,0);
+const manualOut=wallet.entries.filter(e=>e.dir===“out”).reduce((a,e)=>a+e.amount,0);
+// auto: เงินเข้าจากการรับชำระ (payments)
+const autoIn=payments.reduce((a,p)=>a+p.amount,0);
+// auto: เงินออกจากการปล่อยสินเชื่อ (ทุนแม่+ทุนเรา ณ วันเปิดบัญชี)
+const autoOut=debts.reduce((a,d)=>a+(d.principalMom||0)+(d.principalUs||0),0);
+// auto: ต้นทุนขายสด
+const saleOut=sales.reduce((a,s)=>a+(s.cost||0),0);
+const saleIn=sales.reduce((a,s)=>a+s.revenue,0);
+const balance=seed+manualIn+autoIn+saleIn-manualOut-autoOut-saleOut;
+return{seed,manualIn,manualOut,autoIn,autoOut,saleOut,saleIn,balance};
+},[wallet,payments,debts,sales]);
+
+// รวม timeline เข้า-ออกทั้งหมด สำหรับแสดงประวัติ
+const walletTimeline=useMemo(()=>{
+const list=[];
+// manual entries
+wallet.entries.forEach(e=>list.push({
+id:e.id,date:e.date,dir:e.dir,amount:e.amount,
+label:e.note||“เพิ่มทุนมือ”,category:“manual”,deletable:true
+}));
+// auto: รับชำระ
+payments.forEach(p=>{
+const d=debtMap[p.debtId];
+const custName=custMap[d?.customerId]?.name||“ไม่ระบุ”;
+list.push({id:“p_”+p.id,date:p.date,dir:“in”,amount:p.amount,
+label:`รับชำระ — ${custName}`,category:“payment”,deletable:false});
+});
+// auto: ปล่อยสินเชื่อ
+debts.forEach(d=>{
+const amt=(d.principalMom||0)+(d.principalUs||0);
+if(amt<=0) return;
+const custName=custMap[d.customerId]?.name||“ไม่ระบุ”;
+list.push({id:“d_”+d.id,date:d.startDate||today(),dir:“out”,amount:amt,
+label:`ปล่อยสินเชื่อ — ${custName}`,category:“loan”,deletable:false});
+});
+// auto: ขายสด (เข้า revenue, ออก cost)
+sales.forEach(s=>{
+if(s.revenue>0) list.push({id:“sr_”+s.id,date:s.date,dir:“in”,amount:s.revenue,
+label:`ขายสด — ${s.label||"รายรับ"}`,category:“sale”,deletable:false});
+if((s.cost||0)>0) list.push({id:“sc_”+s.id,date:s.date,dir:“out”,amount:s.cost,
+label:`ต้นทุนขาย — ${s.label||"ต้นทุน"}`,category:“sale”,deletable:false});
+});
+return list.sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+},[wallet,payments,debts,sales,debtMap,custMap]);
+
+const exportData=()=>{
+const blob=new Blob([JSON.stringify({customers,debts,payments,sales,products,settings,v:5},null,2)],{type:“application/json”});
+const a=document.createElement(“a”);a.href=URL.createObjectURL(blob);
+a.download=`บัญชีเครดิต_${today()}.json`;a.click();
+};
+const importData=e=>{
+const f=e.target.files[0];if(!f)return;
+const r=new FileReader();
+r.onload=ev=>{
+try{
+const d=JSON.parse(ev.target.result);
+if(d.customers)setCustomers(d.customers);
+if(d.debts)setDebts((d.debts||[]).map(normalizeDebt));
+if(d.payments)setPayments((d.payments||[]).map(normalizePayment));
+if(d.sales)setSales((d.sales||[]).map(normalizeSale));
+if(d.products)setProducts(d.products||[]);
+if(d.settings)setSettings(s=>({…s,…d.settings}));
+if(d.wallet)setWallet(normalizeWallet(d.wallet));
+alert(“นำเข้าสำเร็จ ✅”);
+}catch{alert(“ไฟล์ไม่ถูกต้อง”);}
+};r.readAsText(f);e.target.value=””;
+};
+
+const tabs=[
+{key:“dashboard”, icon:“🏠”,label:“Dashboard”},
+{key:“alert”,     icon:“🔔”,label:“แจ้งเตือน”,badge:todayAlertCount},
+{key:“calendar”,  icon:“📅”,label:“ปฏิทิน”},
+{key:“monthly”,   icon:“📊”,label:“รายเดือน”},
+{key:“debts”,     icon:“📋”,label:“ลูกหนี้”},
+{key:“customers”, icon:“👤”,label:“ลูกค้า”},
+{key:“billing”,   icon:“🧾”,label:“วางบิล”},
+{key:“sales”,     icon:“🛒”,label:“ขายสด”},
+{key:“wallet”,    icon:“💰”,label:“กระเป๋าเงิน”},
+{key:“calc”,      icon:“🧮”,label:“คำนวณดอก”},
+{key:“products”,  icon:“📦”,label:“สินค้า”},
+{key:“summary”,   icon:“📈”,label:“สรุป”},
+{key:“settings”,  icon:“⚙️”,label:“ตั้งค่า”},
+];
+
+const sidebarItems=[
+{key:“dashboard”,icon:“🏠”,label:“Dashboard”},
+{key:“calendar”, icon:“📅”,label:“ปฏิทินนัดชำระ”},
+{key:“customers”,icon:“👥”,label:“ลูกค้า”},
+{key:“debts”,    icon:“📋”,label:“รายการทั้งหมด”},
+{key:“wallet”,   icon:“💰”,label:“กระเป๋าเงิน”},
+{key:“summary”,  icon:“📈”,label:“รายงาน”},
+{key:“products”, icon:“📦”,label:“สินค้า”},
+{key:“settings”, icon:“⚙️”,label:“ตั้งค่า”},
+];
+
+const bg=darkMode?”#1a1015”:”#ffe4eb”;
+const cardBg=darkMode?”#2a1c22”:”#fff”;
+const textMain=darkMode?”#f5d9e0”:”#8c5a65”;
+const textSub=darkMode?”#c79aa6”:”#b07d89”;
+
+// Auth loading splash
+if(authLoading) return<div style={{minHeight:“100vh”,background:bg,display:“flex”,
+alignItems:“center”,justifyContent:“center”,flexDirection:“column”,gap:14}}>
+<div style={{fontSize:52}}>🎀</div>
+<div style={{fontSize:14,fontWeight:700,color:textMain}}>กำลังโหลด…</div>
+<div style={{width:40,height:4,background:“var(–c-border)”,borderRadius:4,overflow:“hidden”}}>
+<div style={{width:“60%”,height:“100%”,background:“var(–c-accent)”,borderRadius:4,
+animation:“fadeIn 1s ease infinite alternate”}}/>
+</div>
+{!window._fbReady&&<div style={{fontSize:11,color:”#ef4444”,marginTop:8,textAlign:“center”,maxWidth:260}}>
+⚠️ Firebase โหลดไม่ได้ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต
+</div>}
+
+  </div>;
+
+// ยังไม่ได้ login → แสดง Login screen
+if(!authUser) return<LoginScreen darkMode={darkMode} setDarkMode={setDarkMode}/>;
+
+return<div style={{minHeight:“100vh”,paddingBottom:80,background:“var(–c-bg)”,transition:“background .2s”}}>
+
+```
+{/* ── SIDEBAR ── */}
+{sidebarOpen&&<div style={{position:"fixed",inset:0,zIndex:1200,background:"rgba(0,0,0,0.35)"}}
+    onClick={()=>setSidebarOpen(false)}>
+  <div style={{position:"absolute",left:0,top:0,bottom:0,width:240,background:cardBg,
+      boxShadow:"4px 0 24px rgba(0,0,0,0.15)",padding:"16px 12px",overflowY:"auto"}}
+    onClick={e=>e.stopPropagation()}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,padding:"0 6px"}}>
+      <span style={{fontWeight:900,fontSize:15,color:textMain}}>🎀 {settings.shopName||"เมนู"}</span>
+      <button onClick={()=>setSidebarOpen(false)} style={{background:"none",border:"none",fontSize:18,
+        cursor:"pointer",color:textSub}}>✕</button>
+    </div>
+    {sidebarItems.map(it=>
+      <button key={it.key} onClick={()=>{
+          if(it.action){it.action();return;}
+          setTab(it.key);setSidebarOpen(false);
+        }}
+        style={{display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left",
+          background:tab===it.key?(darkMode?"#3a2530":"#fff0f3"):"transparent",
+          border:"none",borderRadius:12,padding:"11px 12px",marginBottom:3,
+          fontSize:13,fontWeight:tab===it.key?800:600,
+          color:tab===it.key?(darkMode?"#ff9eaa":"#8c5a65"):textSub,cursor:"pointer"}}>
+        <span style={{fontSize:16}}>{it.icon}</span>{it.label}
+      </button>
+    )}
+    <div style={{borderTop:`1px solid ${darkMode?"#3a2530":"#ffdce3"}`,marginTop:10,paddingTop:10,
+        display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px"}}>
+      <span style={{fontSize:12,color:textSub,fontWeight:600}}>{darkMode?"🌙 โหมดมืด":"☀️ โหมดสว่าง"}</span>
+      <button onClick={()=>setDarkMode(x=>!x)} style={{
+          width:42,height:24,borderRadius:12,border:"none",cursor:"pointer",position:"relative",
+          background:darkMode?"#ff9eaa":"#ffdce3",transition:"background .2s"}}>
+        <span style={{position:"absolute",top:2,left:darkMode?20:2,width:20,height:20,borderRadius:"50%",
+          background:"#fff",transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
+      </button>
+    </div>
+  </div>
+</div>}
+
+<div className="app-header" style={{padding:"12px 14px 0",marginBottom:0}}>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+      <button onClick={()=>setSidebarOpen(true)} className="glass-btn"
+        style={{padding:"7px 11px",fontSize:16,cursor:"pointer",flexShrink:0,border:"none",borderRadius:"var(--radius-sm)"}}>☰</button>
+      <div style={{minWidth:0}}>
+        <div style={{fontSize:15,fontWeight:900,color:"var(--c-text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>🎀 {settings.shopName||"ระบบบัญชีเครดิต"}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,marginTop:1}}>
+          <div style={{fontSize:9,color:"var(--c-sub)"}}>แยกทุน–กำไร · ตารางนัด</div>
+          {/* Sync status dot */}
+          <div title={syncStatus==="synced"?`ซิงค์ล่าสุด ${lastSynced?lastSynced.toLocaleTimeString("th-TH"):""}`:syncStatus==="syncing"?"กำลังซิงค์...":syncStatus==="error"?"ซิงค์ไม่ได้":"offline"}
+            style={{width:7,height:7,borderRadius:"50%",flexShrink:0,
+              background:syncStatus==="synced"?"#10b981":syncStatus==="syncing"?"#f59e0b":syncStatus==="error"?"#ef4444":"#94a3b8",
+              animation:syncStatus==="syncing"?"fadeIn .5s ease infinite alternate":"none"}}/>
+        </div>
+      </div>
+    </div>
+    <div style={{display:"flex",gap:5,flexShrink:0}}>
+      {/* User avatar + menu */}
+      <button onClick={()=>setModal({type:"userMenu"})} className="glass-btn"
+        style={{padding:"5px 8px",cursor:"pointer",border:"none",borderRadius:"var(--radius-sm)",
+          display:"flex",alignItems:"center",gap:5}}>
+        <div style={{width:24,height:24,borderRadius:"50%",background:"var(--c-accent)",
+            display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:800,
+            overflow:"hidden",flexShrink:0}}>
+          {authUser?.photoURL
+            ?<img src={authUser.photoURL} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            :(authUser?.email?.[0]?.toUpperCase()||"U")}
+        </div>
+      </button>
+      <button onClick={()=>setDarkMode(x=>!x)} className="glass-btn"
+        style={{padding:"6px 10px",fontSize:14,cursor:"pointer",border:"none",borderRadius:"var(--radius-sm)"}}>
+        {darkMode?"🌙":"☀️"}
+      </button>
+      <label className="glass-btn" style={{padding:"6px 10px",fontSize:13,fontWeight:600,cursor:"pointer",border:"none",borderRadius:"var(--radius-sm)"}}>
+        📂<input type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
+      </label>
+      <button onClick={exportData} className="glass-btn"
+        style={{padding:"6px 10px",fontSize:13,fontWeight:600,cursor:"pointer",border:"none",borderRadius:"var(--radius-sm)"}}>💾</button>
+    </div>
+  </div>
+  <div className="tab-bar">
+    {tabs.map(t=><button key={t.key} className={`tab-btn${tab===t.key?" active":""}`}
+        onClick={()=>setTab(t.key)} style={{position:"relative"}}>
+      {t.icon} {t.label}
+      {t.badge>0&&<span className="badge">{t.badge}</span>}
+    </button>)}
+  </div>
+</div>
+
+{/* ── ปุ่มด่วน: กระเป๋าเงิน ── */}
+<button onClick={()=>setModal({type:"walletEntry"})}
+  style={{position:"fixed",bottom:18,right:14,zIndex:500,
+    display:"flex",alignItems:"center",gap:8,
+    background:"linear-gradient(135deg,#10b981,#059669)",color:"#fff",
+    border:"none",borderRadius:28,padding:"13px 20px",
+    fontSize:13,fontWeight:800,cursor:"pointer",
+    boxShadow:"0 6px 20px rgba(16,185,129,0.45)"}}>
+  💰 ทุนหมุนเวียน
+</button>
+
+{(tab==="debts"||tab==="customers")&&
+  <div style={{padding:"10px 14px 0"}}>
+    <input value={search} onChange={e=>setSearch(e.target.value)}
+      placeholder="🔍 ค้นหาชื่อ / เบอร์โทร..."
+      style={{...iStyle,boxShadow:"0 2px 6px rgba(140,90,101,0.04)"}}/>
+  </div>}
+
+<div className="page-content">
+
+  {tab==="dashboard"&&<div className="anim">
+
+    {/* เป้ารับเงินวันนี้ — Progress Bar */}
+    <div style={{background:cardBg,borderRadius:16,padding:14,marginBottom:10,boxShadow:"0 4px 12px rgba(140,90,101,0.06)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <span style={{fontSize:12,fontWeight:800,color:textMain}}>🎯 เป้ารับเงินวันนี้</span>
+        <span style={{fontSize:12,fontWeight:800,color:todayStats.received>=settings.dailyGoal?"#10b981":textMain}}>
+          ฿{fmt(todayStats.received)} / ฿{fmt(settings.dailyGoal)}
+        </span>
+      </div>
+      <Bar pct={settings.dailyGoal>0?(todayStats.received/settings.dailyGoal)*100:0}
+        color={todayStats.received>=settings.dailyGoal?"linear-gradient(90deg,#10b981,#34d399)":"linear-gradient(90deg,#ff9eaa,#ffcdb2)"}/>
+      <div style={{fontSize:10,color:textSub,marginTop:4,textAlign:"right"}}>
+        {settings.dailyGoal>0?Math.round((todayStats.received/settings.dailyGoal)*100):0}%
+        {todayStats.received>=settings.dailyGoal&&" 🎉 ถึงเป้าแล้ว!"}
+      </div>
+    </div>
+
+    {/* ── ส่วนที่ 1: ตัวเลขสำคัญ ── */}
+    <div style={{fontSize:12,fontWeight:800,color:textSub,marginBottom:6,marginTop:4}}>📊 ตัวเลขสำคัญ</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+      <BigCard label="💰 ทุนรวม"     value={`฿${fmt(totals.momCap+totals.usCap)}`} color="#8b5cf6"
+        sub={`แม่ ฿${fmt(totals.momCap)} · เรา ฿${fmt(totals.usCap)}`}/>
+      <BigCard label="🟢 กำไรสะสม"   value={`฿${fmt(totals.momP+totals.usP)}`}     color="#10b981"
+        sub={`แม่ ฿${fmt(totals.momP)} · เรา ฿${fmt(totals.usP)}`}/>
+      <BigCard label="⏳ ยอดค้างรวม"  value={`฿${fmt(totals.outstanding)}`}          color="#ef4444"
+        sub={totals.overdueTotal>0?`เกินกำหนด ฿${fmt(totals.overdueTotal)}`:"ไม่มียอดเกินกำหนด"}/>
+      <BigCard label="👥 ลูกหนี้"     value={`${debts.filter(d=>(dStats[d.id]?.remaining||0)>0).length} บัญชี`} color="#3b82f6"
+        sub={`จากลูกค้า ${customers.length} คน`}/>
+    </div>
+
+    {/* วงกลมกำไรเดือนนี้ */}
+    <div style={{background:cardBg,borderRadius:16,padding:16,marginBottom:14,boxShadow:"0 4px 12px rgba(140,90,101,0.06)",
+        display:"flex",alignItems:"center",gap:16}}>
+      <div style={{position:"relative",width:84,height:84,flexShrink:0}}>
+        <svg width="84" height="84" style={{transform:"rotate(-90deg)"}}>
+          <circle cx="42" cy="42" r="36" fill="none" stroke={darkMode?"#3a2530":"#ffdce3"} strokeWidth="9"/>
+          <circle cx="42" cy="42" r="36" fill="none" stroke="#10b981" strokeWidth="9"
+            strokeDasharray={`${2*Math.PI*36}`}
+            strokeDashoffset={`${2*Math.PI*36*(1-monthProfitGoal.pct/100)}`}
+            strokeLinecap="round"/>
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:17,fontWeight:900,color:"#10b981"}}>{monthProfitGoal.pct}%</div>
+      </div>
+      <div>
+        <div style={{fontSize:12,fontWeight:800,color:textMain}}>กำไรเดือนนี้</div>
+        <div style={{fontSize:18,fontWeight:900,color:"#10b981"}}>฿{fmt(monthProfitGoal.earned)}</div>
+        <div style={{fontSize:10,color:textSub}}>เป้าหมาย ฿{fmt(monthProfitGoal.target)}</div>
+      </div>
+    </div>
+
+    {/* ── ส่วนที่ 2: กราฟ 7 วันย้อนหลัง ── */}
+    <div style={{fontSize:12,fontWeight:800,color:textSub,marginBottom:6}}>📈 กราฟ 7 วันย้อนหลัง</div>
+    <div style={{background:cardBg,borderRadius:16,padding:14,marginBottom:14,boxShadow:"0 4px 12px rgba(140,90,101,0.06)"}}>
+      {[
+        {label:"กำไรรายวัน",arr:chart7d.profitArr,color:"#10b981"},
+        {label:"ยอดปล่อยรายวัน",arr:chart7d.loanArr,color:"#f97316"},
+        {label:"รับเงินรายวัน",arr:chart7d.receivedArr,color:"#3b82f6"},
+      ].map((series,si)=>{
+        const max=Math.max(1,...series.arr);
+        return<div key={si} style={{marginBottom:si<2?14:0}}>
+          <div style={{fontSize:11,fontWeight:700,color:textMain,marginBottom:5}}>{series.label}</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:4,height:54}}>
+            {series.arr.map((v,i)=>
+              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <div title={`฿${fmt(v)}`} style={{width:"100%",borderRadius:"4px 4px 0 0",
+                  background:series.color,opacity:v>0?1:0.15,
+                  height:`${Math.max(2,(v/max)*44)}px`,transition:"height .3s"}}/>
+              </div>
+            )}
+          </div>
+          <div style={{display:"flex",gap:4,marginTop:3}}>
+            {chart7d.labels.map((l,i)=>
+              <div key={i} style={{flex:1,textAlign:"center",fontSize:8,color:textSub}}>{l}</div>
+            )}
+          </div>
+        </div>;
+      })}
+    </div>
+
+    {/* ── ส่วนที่ 3: แจ้งเตือน ── */}
+    <div style={{fontSize:12,fontWeight:800,color:textSub,marginBottom:6}}>🔔 แจ้งเตือน</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+      <button onClick={()=>setTab("alert")} style={{textAlign:"left",background:cardBg,border:"none",
+          borderRadius:14,padding:"11px 12px",cursor:"pointer",boxShadow:"0 4px 12px rgba(140,90,101,0.06)",
+          borderLeft:"4px solid #f59e0b"}}>
+        <div style={{fontSize:10,color:textSub,marginBottom:2}}>📌 ครบกำหนดวันนี้</div>
+        <div style={{fontSize:18,fontWeight:900,color:"#f59e0b"}}>{alertLevels.dueToday.length}</div>
+        <div style={{fontSize:9,color:textSub}}>฿{fmt(alertLevels.dueToday.reduce((a,x)=>a+x.amt,0))}</div>
+      </button>
+      <button onClick={()=>setTab("alert")} style={{textAlign:"left",background:cardBg,border:"none",
+          borderRadius:14,padding:"11px 12px",cursor:"pointer",boxShadow:"0 4px 12px rgba(140,90,101,0.06)",
+          borderLeft:"4px solid #ef4444"}}>
+        <div style={{fontSize:10,color:textSub,marginBottom:2}}>⚠️ ค้างเกิน 7 วัน</div>
+        <div style={{fontSize:18,fontWeight:900,color:"#ef4444"}}>{alertLevels.overdue7.length}</div>
+        <div style={{fontSize:9,color:textSub}}>฿{fmt(alertLevels.overdue7.reduce((a,x)=>a+x.amt,0))}</div>
+      </button>
+      <button onClick={()=>setTab("alert")} style={{textAlign:"left",background:cardBg,border:"none",
+          borderRadius:14,padding:"11px 12px",cursor:"pointer",boxShadow:"0 4px 12px rgba(140,90,101,0.06)",
+          borderLeft:"4px solid #b91c1c"}}>
+        <div style={{fontSize:10,color:textSub,marginBottom:2}}>🚨 ค้างเกิน 30 วัน</div>
+        <div style={{fontSize:18,fontWeight:900,color:"#b91c1c"}}>{alertLevels.overdue30.length}</div>
+        <div style={{fontSize:9,color:textSub}}>฿{fmt(alertLevels.overdue30.reduce((a,x)=>a+x.amt,0))}</div>
+      </button>
+      <button onClick={()=>setTab("summary")} style={{textAlign:"left",background:cardBg,border:"none",
+          borderRadius:14,padding:"11px 12px",cursor:"pointer",boxShadow:"0 4px 12px rgba(140,90,101,0.06)",
+          borderLeft:"4px solid #6b7280"}}>
+        <div style={{fontSize:10,color:textSub,marginBottom:2}}>💀 เครดิตเสีย</div>
+        <div style={{fontSize:18,fontWeight:900,color:"#6b7280"}}>{alertLevels.badDebt.length}</div>
+        <div style={{fontSize:9,color:textSub}}>฿{fmt(alertLevels.badDebt.reduce((a,x)=>a+x.amt,0))}</div>
+      </button>
+    </div>
+
+    {/* ── ส่วนที่ 4: รายการล่าสุด ── */}
+    <div style={{fontSize:12,fontWeight:800,color:textSub,marginBottom:6}}>🕐 รายการล่าสุดวันนี้</div>
+    <div style={{background:cardBg,borderRadius:16,padding:14,marginBottom:10,boxShadow:"0 4px 12px rgba(140,90,101,0.06)"}}>
+
+      <div style={{fontSize:11,fontWeight:800,color:textMain,marginBottom:6}}>💸 วันนี้มีใครโอน ({todayActivity.transfers.length})</div>
+      {todayActivity.transfers.length===0
+        ?<div style={{fontSize:11,color:textSub,marginBottom:10}}>ยังไม่มีรายการรับเงินวันนี้</div>
+        :<div style={{marginBottom:10}}>
+          {todayActivity.transfers.slice(0,5).map(p=>
+            <div key={p.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"4px 0",
+                borderBottom:`1px solid ${darkMode?"#3a2530":"#fff0f3"}`}}>
+              <span style={{color:textMain}}>{p.custName}</span>
+              <span style={{fontWeight:800,color:"#10b981"}}>+฿{fmt(p.amount)}</span>
+            </div>
+          )}
+        </div>}
+
+      <div style={{fontSize:11,fontWeight:800,color:textMain,marginBottom:6}}>💳 วันนี้ใครรับเครดิต ({todayActivity.newCredits.length})</div>
+      {todayActivity.newCredits.length===0
+        ?<div style={{fontSize:11,color:textSub,marginBottom:10}}>ยังไม่มีการปล่อยเครดิตวันนี้</div>
+        :<div style={{marginBottom:10}}>
+          {todayActivity.newCredits.slice(0,5).map(d=>
+            <div key={d.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"4px 0",
+                borderBottom:`1px solid ${darkMode?"#3a2530":"#fff0f3"}`}}>
+              <span style={{color:textMain}}>{d.custName}</span>
+              <span style={{fontWeight:800,color:"#f97316"}}>฿{fmt((d.principalMom||0)+(d.principalUs||0))}</span>
+            </div>
+          )}
+        </div>}
+
+      <div style={{fontSize:11,fontWeight:800,color:textMain,marginBottom:6}}>📌 วันนี้ใครครบกำหนด ({todayActivity.dueTodayList.length})</div>
+      {todayActivity.dueTodayList.length===0
+        ?<div style={{fontSize:11,color:textSub}}>ไม่มีนัดครบกำหนดวันนี้</div>
+        :<div>
+          {todayActivity.dueTodayList.slice(0,5).map((x,i)=>
+            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"4px 0",
+                borderBottom:i<todayActivity.dueTodayList.length-1?`1px solid ${darkMode?"#3a2530":"#fff0f3"}`:"none"}}>
+              <span style={{color:textMain}}>{x.cust?.name||"ไม่ระบุ"}</span>
+              <span style={{fontWeight:800,color:"#f59e0b"}}>฿{fmt(x.amt)}</span>
+            </div>
+          )}
+        </div>}
+    </div>
+
+    {/* ── ส่วนที่ 5: คาดการณ์รายรับ + ลูกหนี้น่าเป็นห่วง ── */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+      <div style={{background:"linear-gradient(135deg,#6366f120,#6366f108)",
+          borderRadius:14,padding:"12px 13px",border:"1px solid #6366f125"}}>
+        <div style={{fontSize:10,fontWeight:800,color:"#6366f1",marginBottom:4}}>🔮 คาดการณ์เดือนหน้า</div>
+        <div style={{fontSize:18,fontWeight:900,color:"#6366f1"}}>฿{fmt(forecastNextMonth.total)}</div>
+        <div style={{fontSize:9,color:textSub,marginTop:2}}>{forecastNextMonth.month} · {forecastNextMonth.count} งวด</div>
+      </div>
+      <div style={{background:"linear-gradient(135deg,#f9731620,#f9731608)",
+          borderRadius:14,padding:"12px 13px",border:"1px solid #f9731625"}}>
+        <div style={{fontSize:10,fontWeight:800,color:"#f97316",marginBottom:4}}>⚡ ปล่อยสินเชื่อใหม่ได้</div>
+        <div style={{fontSize:18,fontWeight:900,color:"#f97316"}}>฿{fmt(analysis.safe)}</div>
+        <div style={{fontSize:9,color:textSub,marginTop:2}}>ตามทุนที่คาดว่าได้คืน/เดือน ×80%</div>
+      </div>
+    </div>
+
+    {/* ลูกหนี้น่าเป็นห่วง (overdue30 + bad score) */}
+    {(alertLevels.overdue30.length>0||alertLevels.badDebt.length>0)&&<>
+      <div style={{fontSize:12,fontWeight:800,color:textSub,marginBottom:6}}>⚠️ ลูกหนี้น่าเป็นห่วง</div>
+      <div style={{background:cardBg,borderRadius:16,padding:14,marginBottom:14,
+          boxShadow:"0 4px 12px rgba(140,90,101,0.06)",border:"1px solid #ef444420"}}>
+        {[...alertLevels.overdue30,...alertLevels.badDebt]
+          .filter((x,i,a)=>a.findIndex(y=>y.debt.id===x.debt.id)===i)
+          .slice(0,5).map((x,i)=>{
+            const score=calcCreditScore(debts.filter(d=>d.customerId===x.cust?.id),payments);
+            return<div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                padding:"7px 0",borderBottom:i<4?"1px solid var(--c-border)":"none"}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:800,color:textMain}}>{x.cust?.name||"ไม่ระบุ"}</div>
+                <div style={{fontSize:10,color:textSub}}>{x.daysLate?`ค้าง ${x.daysLate} วัน`:"เครดิตเสีย"}</div>
+              </div>
+              <div style={{textAlign:"right",display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:9,background:score.color+"18",color:score.color,
+                    borderRadius:6,padding:"2px 6px",fontWeight:700,border:`1px solid ${score.color}30`}}>
+                  {score.level}
+                </span>
+                <span style={{fontSize:13,fontWeight:900,color:"#ef4444"}}>฿{fmt(x.amt)}</span>
+              </div>
+            </div>;
+          })}
+      </div>
+    </>}
+
+  </div>}
+
+  {tab==="calendar"&&<div className="anim"><CalendarTab debts={debts} dStats={dStats} payments={payments} custMap={custMap} setModal={setModal} textMain={textMain} textSub={textSub} cardBg={cardBg}/></div>}
+
+  {tab==="alert"&&<div className="anim">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <div style={{fontWeight:800,fontSize:14,color:"#8c5a65"}}>🔔 แจ้งเตือนยอดครบชำระ</div>
+      <input type="date" value={alertDate} onChange={e=>setAlertDate(e.target.value)}
+        style={{...iStyle,width:"auto",padding:"6px 10px",fontSize:12}}/>
+    </div>
+    <div style={{fontSize:12,color:"#b07d89",marginBottom:10}}>
+      ดูยอดวันที่: <strong>{thDate(alertDate)}</strong>
+      {alertDate===today()&&<span style={{color:"#10b981",marginLeft:4}}>• วันนี้</span>}
+    </div>
+
+    {alertItems.length===0
+      ?<div style={{background:"#fff",borderRadius:16,padding:32,textAlign:"center",
+          color:"#b07d89",boxShadow:"0 4px 12px rgba(140,90,101,0.04)"}}>
+        ✅ ไม่มียอดครบชำระหรือค้างชำระวันนี้
+      </div>
+      :alertItems.map(({debt:d,cust:c,due,overdue,dueAmt,overdueAmt})=>{
+        const s=dStats[d.id];
+        return<div key={d.id} style={{background:"#fff",borderRadius:16,padding:14,marginBottom:10,
+            boxShadow:"0 4px 12px rgba(140,90,101,0.04)",
+            borderLeft:`4px solid ${overdueAmt>0?"#ef4444":dueAmt>0?"#f59e0b":"#ffdce3"}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:14,color:"#8c5a65"}}>{c?.name||"ไม่ระบุ"}</div>
+              <div style={{fontSize:12,color:"#b07d89"}}>{c?.phone}</div>
+              <div style={{display:"flex",gap:4,marginTop:4,flexWrap:"wrap"}}>
+                <Tag type={d.creditType}/>
+                {d.schedule&&<PTag mode={d.schedule.payMode}/>}
+              </div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:11,color:"#b07d89"}}>ยอดหนี้คงเหลือ</div>
+              <div style={{fontSize:16,fontWeight:900,color:"#ef4444"}}>฿{fmt(s.remaining)}</div>
+            </div>
+          </div>
+
+          {dueAmt>0&&<div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:12,
+              padding:"8px 12px",marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#92400e",marginBottom:4}}>📌 ยอดนัดชำระวันนี้</div>
+            {due.map((x,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+              <span style={{color:"#8c5a65"}}>{x.label||PAY_MODES.find(m=>m.value===x.type)?.label||x.type}</span>
+              <span style={{fontWeight:800,color:"#92400e"}}>฿{fmt(x.amtDue)}</span>
+            </div>)}
+          </div>}
+
+          {overdueAmt>0&&<div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:12,
+              padding:"8px 12px",marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#b91c1c",marginBottom:4}}>⚠️ ค้างชำระ {overdue.length} งวด</div>
+            {overdue.slice(0,3).map((x,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+              <span style={{color:"#b07d89"}}>{thDate(x.date)}</span>
+              <span style={{fontWeight:800,color:"#ef4444"}}>฿{fmt(x.amtDue)}</span>
+            </div>)}
+            {overdue.length>3&&<div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>...และอีก {overdue.length-3} งวด</div>}
+            <Divider/>
+            <div style={{display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13,color:"#8c5a65"}}>
+              <span>รวมค้างทั้งหมด</span>
+              <span style={{color:"#ef4444"}}>฿{fmt(overdueAmt)}</span>
+            </div>
+          </div>}
+
+          <Btn small full color="#10b981" onClick={()=>setModal({type:"addPayment",data:d})}>
+            + บันทึกรับเงิน
+          </Btn>
+        </div>;
+      })}
+
+    <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:12,
+        padding:11,fontSize:12,color:"#1e40af",marginTop:6}}>
+      💡 ยอดค้างคำนวณจากตารางนัดชำระที่ตั้งไว้ · เปลี่ยนวันเพื่อดูย้อนหลังหรือล่วงหน้าได้
+    </div>
+  </div>}
+
+  {tab==="monthly"&&<div className="anim">
+    <div style={{fontWeight:800,fontSize:14,marginBottom:4,color:"#8c5a65"}}>📅 กระแสเงินสดรายเดือน</div>
+    <div style={{fontSize:11,color:"#b07d89",marginBottom:10}}>ละเอียดทุกมิติ · ใช้ยื่นภาษีได้</div>
+    {monthly.length===0&&<div style={{textAlign:"center",color:"#b07d89",padding:40}}>ยังไม่มีข้อมูล</div>}
+    {monthly.map(m=>{
+      const net=m.totalIn-m.totalOut;
+      return<div key={m.key} style={{background:"#fff",borderRadius:16,padding:14,marginBottom:10,
+          boxShadow:"0 4px 12px rgba(140,90,101,0.04)",
+          borderLeft:`4px solid ${net>=0?"#10b981":"#f97316"}`}}>
+        {/* หัวเดือน */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontWeight:900,fontSize:15,color:"#8c5a65"}}>{m.label}</span>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:10,color:"#b07d89"}}>Net Cash Flow</div>
+            <div style={{fontSize:15,fontWeight:900,color:net>=0?"#10b981":"#ef4444"}}>
+              {net>=0?"":"-"}฿{fmt(Math.abs(net))}
+            </div>
+          </div>
+        </div>
+
+        {/* เงินเข้า */}
+        <div style={{background:"#f0fdf4",borderRadius:10,padding:"9px 10px",marginBottom:6,border:"1px solid #bbf7d0"}}>
+          <div style={{fontSize:10,fontWeight:800,color:"#166534",marginBottom:5}}>🟢 เงินเข้า รวม ฿{fmt(m.totalIn)}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4,marginBottom:4}}>
+            <MCard label="รับจากลูกหนี้"  value={`฿${fmt(m.income)}`}      color="#10b981"/>
+            <MCard label="รายได้ขายสด"    value={`฿${fmt(m.sRev)}`}        color="#22c55e"/>
+            <MCard label="กำไรแท้รวม"     value={`฿${fmt(m.trueProfit)}`}  color="#16a34a"/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
+            <MCard label="ทุนแม่คืน"   value={`฿${fmt(m.incomeCapMom)}`}   color="#8b5cf6"/>
+            <MCard label="ทุนเราคืน"   value={`฿${fmt(m.incomeCapUs)}`}    color="#3b82f6"/>
+            <MCard label="กำไรแม่"     value={`฿${fmt(m.incomeProfitMom)}`} color="#a855f7"/>
+            <MCard label="กำไรเรา"     value={`฿${fmt(m.incomeProfitUs)}`}  color="#10b981"/>
+          </div>
+        </div>
+
+        {/* เงินออก */}
+        {(m.totalOut>0)&&<div style={{background:"#fef2f2",borderRadius:10,padding:"9px 10px",marginBottom:6,border:"1px solid #fecaca"}}>
+          <div style={{fontSize:10,fontWeight:800,color:"#b91c1c",marginBottom:5}}>🔴 เงินออก รวม ฿{fmt(m.totalOut)}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+            <MCard label="ทุนแม่ปล่อยใหม่" value={`฿${fmt(m.outLoanMom)}`} color="#ef4444"/>
+            <MCard label="ทุนเราปล่อยใหม่"  value={`฿${fmt(m.outLoanUs)}`}  color="#f97316"/>
+            <MCard label="ต้นทุนขายสด"       value={`฿${fmt(m.sCost)}`}      color="#dc2626"/>
+          </div>
+        </div>}
+
+        {/* ภาษี */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:4}}>
+          <div style={{background:"#f3e8ff",borderRadius:8,padding:"7px 9px",border:"1px solid #e9d5ff"}}>
+            <div style={{fontSize:9,color:"#7c3aed",fontWeight:700}}>📋 Cash Basis (ภาษี)</div>
+            <div style={{fontSize:13,fontWeight:900,color:"#6d28d9"}}>฿{fmt(m.taxCashBasis)}</div>
+          </div>
+          <div style={{background:"#ede9fe",borderRadius:8,padding:"7px 9px",border:"1px solid #ddd6fe"}}>
+            <div style={{fontSize:9,color:"#7c3aed",fontWeight:700}}>📋 Accrual (ภาษี)</div>
+            <div style={{fontSize:13,fontWeight:900,color:"#6d28d9"}}>฿{fmt(m.taxAccrual)}</div>
+          </div>
+        </div>
+
+        <div style={{fontSize:10,color:"#b07d89",textAlign:"right"}}>{m.cnt} รายการชำระ</div>
+      </div>;
+    })}
+  </div>}
+
+  {tab==="debts"&&<div className="anim">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+      <span style={{fontWeight:800,fontSize:14,color:textMain}}>📋 ลูกหนี้ ({filtD.length}/{debts.length})</span>
+      <Btn small onClick={()=>setModal({type:"addDebt"})}>+ เพิ่มบัญชี</Btn>
+    </div>
+    <div style={{display:"flex",gap:5,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
+      {[
+        {label:"ทั้งหมด",    s:""},
+        {label:"🔴 ค้างชำระ", s:"overdue"},
+        {label:"⏳ ยังค้าง",  s:"active"},
+        {label:"✅ ชำระครบ", s:"done"},
+      ].map(btn=><button key={btn.s} onClick={()=>setDebtFilter(f=>({...f,status:btn.s}))}
+        style={{flexShrink:0,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:700,
+          cursor:"pointer",border:"none",whiteSpace:"nowrap",
+          background:debtFilter.status===btn.s?"var(--c-accent)":"var(--c-panel)",
+          color:debtFilter.status===btn.s?"#fff":"var(--c-sub)"}}>
+        {btn.label}
+      </button>)}
+      <select value={debtFilter.type} onChange={e=>setDebtFilter(f=>({...f,type:e.target.value}))}
+        style={{...iStyle,width:"auto",padding:"4px 9px",fontSize:11,flexShrink:0,height:30}}>
+        <option value="">ทุกประเภท</option>
+        {CREDIT_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+      </select>
+    </div>
+    {filtD.length===0&&<div style={{textAlign:"center",color:textSub,padding:40}}>ไม่พบข้อมูล</div>}
+    {filtD.map(d=><DebtCard key={d.id} d={d} s={dStats[d.id]} c={custMap[d.customerId]}
+      schedule={schedules[d.id]||[]} allPayments={payments}
+      setModal={setModal}
+      onDelPayment={id=>confirm2("ลบรายการชำระนี้?",()=>delP(id))}
+      onDelDebt={id=>confirm2(`ลบบัญชีนี้ทั้งหมด?`,()=>delD(id))}/>)}
+  </div>}
+
+  {tab==="customers"&&<div className="anim">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontWeight:800,fontSize:14,color:"#8c5a65"}}>👤 ลูกค้า ({filtC.length})</span>
+      <Btn small onClick={()=>setModal({type:"addCustomer"})}>+ เพิ่มลูกค้า</Btn>
+    </div>
+    {filtC.length===0&&<div style={{textAlign:"center",color:"#b07d89",padding:40}}>ไม่พบข้อมูล</div>}
+    {filtC.map(c=><CustomerCard key={c.id} c={c} debts={debts} debtStats={dStats} allPayments={payments} setModal={setModal}/>)}
+  </div>}
+
+  {tab==="billing"&&<div className="anim"><BillingTab debts={debts} dStats={dStats} customers={customers} custMap={custMap} payments={payments} schedules={schedules} setModal={setModal} textMain={textMain} textSub={textSub} cardBg={cardBg} darkMode={darkMode}/></div>}
+
+  {tab==="calc"&&<div className="anim"><InterestCalcTab textMain={textMain} textSub={textSub} cardBg={cardBg}/></div>}
+
+  {tab==="sales"&&<div className="anim">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontWeight:800,fontSize:14,color:"#8c5a65"}}>🛒 ขายสด ({sales.length} รอบ)</span>
+      <Btn small onClick={()=>setModal({type:"addSale"})}>+ เพิ่มรอบขาย</Btn>
+    </div>
+    {sales.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+      <MCard label="รายได้รวม" value={`฿${fmt(totals.sRev)}`}    color="#f59e0b"/>
+      <MCard label="ต้นทุนรวม" value={`฿${fmt(totals.sCost)}`}   color="#ef4444"/>
+      <MCard label="กำไรรวม"   value={`฿${fmt(totals.sProfit)}`} color="#10b981"/>
+    </div>}
+    {sales.length===0&&<div style={{textAlign:"center",color:"#b07d89",padding:40}}>ยังไม่มีรายการ</div>}
+    {[...sales].sort((a,b)=>b.date.localeCompare(a.date)).map(s=><div key={s.id}
+        style={{background:"#fff",borderRadius:16,padding:13,marginBottom:8,
+          boxShadow:"0 4px 12px rgba(140,90,101,0.04)",borderLeft:"4px solid #f59e0b"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{fontWeight:800,color:"#8c5a65"}}>{s.label||"ขายสด"}</div>
+          <div style={{fontSize:12,color:"#b07d89"}}>{thDate(s.date)}</div>
+          {s.note&&<div style={{fontSize:11,color:"#b07d89",marginTop:2}}>{s.note}</div>}
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:16,fontWeight:900,color:"#10b981"}}>+฿{fmt(s.revenue-s.cost)}</div>
+          <div style={{fontSize:11,color:"#b07d89"}}>ขาย ฿{fmt(s.revenue)} / ทุน ฿{fmt(s.cost)}</div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginTop:10}}>
+        <Btn small color="#6366f1" outline onClick={()=>setModal({type:"editSale",data:s})}>แก้ไข</Btn>
+        <Btn small color="#ef4444" outline onClick={()=>{if(confirm("ลบ?"))delS(s.id)}}>ลบ</Btn>
+      </div>
+    </div>)}
+  </div>}
+
+  {tab==="summary"&&<div className="anim">
+    <div style={{fontWeight:800,fontSize:14,marginBottom:10,color:"#8c5a65"}}>📈 สรุปแยกตามประเภทเครดิต</div>
+    {CREDIT_TYPES.map(ct=>{
+      const bt=byType[ct.value];if(bt.count===0)return null;
+      const pct=bt.total>0?((bt.total-bt.outstanding)/bt.total)*100:0;
+      return<div key={ct.value} style={{background:"#fff",borderRadius:16,padding:14,marginBottom:10,
+          boxShadow:"0 4px 12px rgba(140,90,101,0.04)",borderLeft:`4px solid ${ct.color}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div><Tag type={ct.value}/><span style={{fontSize:12,color:"#b07d89",marginLeft:8}}>{bt.count} บัญชี</span></div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:13,fontWeight:800,color:"#ef4444"}}>ค้าง ฿{fmt(bt.outstanding)}</div>
+            <div style={{fontSize:11,color:"#b07d89"}}>จาก ฿{fmt(bt.total)}</div>
+          </div>
+        </div>
+        <Bar pct={pct} color={`linear-gradient(90deg,${ct.color},${ct.color}99)`}/>
+        <div style={{fontSize:11,color:"#b07d89",textAlign:"right",marginTop:2,marginBottom:8}}>ชำระแล้ว {Math.round(pct)}%</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5}}>
+          <MCard label="ทุนแม่"  value={`฿${fmt(bt.momCap)}`} color="#8b5cf6"/>
+          <MCard label="ทุนเรา"  value={`฿${fmt(bt.usCap)}`} color="#3b82f6"/>
+          <MCard label="กำไรแม่" value={`฿${fmt(bt.momP)}`}  color="#a855f7"/>
+          <MCard label="กำไรเรา" value={`฿${fmt(bt.usP)}`}   color="#10b981"/>
+        </div>
+      </div>;
+    })}
+    {Object.values(byType).every(b=>b.count===0)&&<div style={{textAlign:"center",color:"#b07d89",padding:40}}>ยังไม่มีข้อมูล</div>}
+  </div>}
+
+  {tab==="wallet"&&<div className="anim">
+    <div style={{fontWeight:800,fontSize:14,marginBottom:4,color:textMain}}>💰 กระเป๋าเงิน / ทุนหมุนเวียน</div>
+    <div style={{fontSize:11,color:textSub,marginBottom:10}}>ติดตามเงินเข้า-ออกทุกรายการ · คำนวณยอดคงเหลืออัตโนมัติ</div>
+
+    {/* ตั้งเงินสดตั้งต้น */}
+    <div style={{background:cardBg,borderRadius:16,padding:14,marginBottom:10,boxShadow:"0 4px 12px rgba(140,90,101,0.05)"}}>
+      <div style={{fontSize:12,fontWeight:800,color:textMain,marginBottom:8}}>💵 เงินสดตั้งต้น</div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <input type="number" style={{...iStyle,flex:1}}
+          value={wallet.seedCash||""}
+          placeholder="กรอกยอดเงินสดเริ่มต้นของคุณ"
+          onChange={e=>setSeedCash(+e.target.value||0)}/>
+        <div style={{flexShrink:0,fontWeight:900,fontSize:16,color:"#10b981"}}>฿{fmt(wallet.seedCash||0)}</div>
+      </div>
+    </div>
+
+    {/* สรุปยอดคงเหลือ */}
+    <div style={{background:"linear-gradient(135deg,#10b981,#059669)",borderRadius:16,padding:16,marginBottom:10,color:"#fff"}}>
+      <div style={{fontSize:11,opacity:0.85,marginBottom:4}}>ยอดเงินสดคงเหลือปัจจุบัน</div>
+      <div style={{fontSize:28,fontWeight:900}}>{walletBalance.balance>=0?"":"-"}฿{fmt(Math.abs(walletBalance.balance))}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
+        <div style={{background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 10px"}}>
+          <div style={{fontSize:9,opacity:0.8,marginBottom:2}}>เงินเข้ารวม</div>
+          <div style={{fontSize:13,fontWeight:800}}>+฿{fmt((wallet.seedCash||0)+walletBalance.manualIn+walletBalance.autoIn+walletBalance.saleIn)}</div>
+        </div>
+        <div style={{background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 10px"}}>
+          <div style={{fontSize:9,opacity:0.8,marginBottom:2}}>เงินออกรวม</div>
+          <div style={{fontSize:13,fontWeight:800}}>-฿{fmt(walletBalance.manualOut+walletBalance.autoOut+walletBalance.saleOut)}</div>
+        </div>
+      </div>
+    </div>
+
+    {/* breakdown */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
+      <MCard label="📥 รับชำระ (auto)" value={`+฿${fmt(walletBalance.autoIn)}`} color="#10b981"/>
+      <MCard label="📤 ปล่อยสินเชื่อ (auto)" value={`-฿${fmt(walletBalance.autoOut)}`} color="#ef4444"/>
+      <MCard label="🛒 รายรับขายสด (auto)" value={`+฿${fmt(walletBalance.saleIn)}`} color="#22c55e"/>
+      <MCard label="📦 ต้นทุนขายสด (auto)" value={`-฿${fmt(walletBalance.saleOut)}`} color="#f97316"/>
+      <MCard label="➕ เพิ่มทุนมือ" value={`+฿${fmt(walletBalance.manualIn)}`} color="#6366f1"/>
+      <MCard label="➖ ถอนทุนมือ" value={`-฿${fmt(walletBalance.manualOut)}`} color="#a855f7"/>
+    </div>
+
+    {/* ปุ่มเพิ่ม/ถอนมือ */}
+    <div style={{display:"flex",gap:8,marginBottom:14}}>
+      <Btn full color="#10b981" onClick={()=>setModal({type:"walletEntry",dir:"in"})}>+ เพิ่มเงินทุน</Btn>
+      <Btn full color="#ef4444" outline onClick={()=>setModal({type:"walletEntry",dir:"out"})}>− ถอนเงิน</Btn>
+    </div>
+
+    {/* Timeline */}
+    <div style={{fontWeight:800,fontSize:12,color:textSub,marginBottom:6}}>📋 ประวัติเข้า-ออกทั้งหมด ({walletTimeline.length} รายการ)</div>
+    {walletTimeline.length===0&&<div style={{textAlign:"center",color:textSub,padding:32}}>ยังไม่มีประวัติ</div>}
+    {walletTimeline.map((e,i)=>{
+      const isIn=e.dir==="in";
+      const catColor={"manual":"#6366f1","payment":"#10b981","loan":"#ef4444","sale":"#f59e0b"}[e.category]||"#888";
+      return<div key={e.id} style={{background:cardBg,borderRadius:12,padding:"10px 12px",marginBottom:6,
+          boxShadow:"0 2px 6px rgba(140,90,101,0.04)",
+          borderLeft:`3px solid ${isIn?"#10b981":"#ef4444"}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              <span style={{fontSize:12,fontWeight:700,color:textMain}}>{e.label}</span>
+              <span style={{background:catColor+"18",color:catColor,borderRadius:6,
+                  padding:"1px 6px",fontSize:9,fontWeight:700,border:`1px solid ${catColor}30`}}>
+                {{"manual":"มือ","payment":"รับชำระ","loan":"ปล่อยกู้","sale":"ขายสด"}[e.category]}
+              </span>
+            </div>
+            <div style={{fontSize:10,color:textSub,marginTop:2}}>{thDate(e.date)}</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+            <span style={{fontSize:14,fontWeight:900,color:isIn?"#10b981":"#ef4444"}}>
+              {isIn?"+":"-"}฿{fmt(e.amount)}
+            </span>
+            {e.deletable&&<button onClick={()=>delWalletEntry(e.id)}
+              style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"2px 8px",
+                fontSize:10,cursor:"pointer",color:"#ef4444"}}>ลบ</button>}
+          </div>
+        </div>
+      </div>;
+    })}
+  </div>}
+
+  {tab==="products"&&<div className="anim">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontWeight:800,fontSize:14,color:textMain}}>📦 สินค้า ({products.length})</span>
+      <Btn small onClick={()=>setModal({type:"addProduct"})}>+ เพิ่มสินค้า</Btn>
+    </div>
+    {products.length===0&&<div style={{textAlign:"center",color:textSub,padding:40}}>ยังไม่มีสินค้า</div>}
+    {products.map(p=>{
+      const margin=p.sellPrice>0?(((p.sellPrice-p.costPrice)/p.sellPrice)*100):0;
+      return<div key={p.id} style={{background:cardBg,borderRadius:16,padding:13,marginBottom:8,
+          boxShadow:"0 4px 12px rgba(140,90,101,0.04)",borderLeft:"4px solid #6366f1"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontWeight:800,color:textMain}}>{p.name}</div>
+            {p.note&&<div style={{fontSize:11,color:textSub,marginTop:2}}>{p.note}</div>}
+            <div style={{fontSize:11,color:textSub,marginTop:3}}>คงเหลือ {p.stock??0} ชิ้น</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:14,fontWeight:900,color:"#10b981"}}>฿{fmt(p.sellPrice)}</div>
+            <div style={{fontSize:11,color:textSub}}>ทุน ฿{fmt(p.costPrice)} · กำไร {Math.round(margin)}%</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,marginTop:10}}>
+          <Btn small color="#6366f1" outline onClick={()=>setModal({type:"editProduct",data:p})}>แก้ไข</Btn>
+          <Btn small color="#ef4444" outline onClick={()=>{if(confirm("ลบสินค้านี้?"))delPr(p.id)}}>ลบ</Btn>
+        </div>
+      </div>;
+    })}
+  </div>}
+
+  {tab==="settings"&&<div className="anim">
+    <div style={{fontWeight:800,fontSize:14,marginBottom:10,color:textMain}}>⚙️ ตั้งค่า</div>
+    <div style={{background:cardBg,borderRadius:16,padding:16,marginBottom:10,boxShadow:"0 4px 12px rgba(140,90,101,0.04)"}}>
+      <Row label="ชื่อร้าน">
+        <input style={iStyle} value={settings.shopName||""}
+          onChange={e=>setSettings(s=>({...s,shopName:e.target.value}))}/>
+      </Row>
+      <Row label="เป้ารับเงินต่อวัน (฿)" hint="ใช้แสดง progress bar ใน Dashboard">
+        <input type="number" style={iStyle} value={settings.dailyGoal||0}
+          onChange={e=>setSettings(s=>({...s,dailyGoal:+e.target.value||0}))}/>
+      </Row>
+      <Row label="เป้ากำไรต่อเดือน (฿)" hint="ใช้แสดงวงกลมกำไรใน Dashboard — ว่างได้ จะคำนวณจากเป้ารายวัน×25">
+        <input type="number" style={iStyle} value={settings.monthlyProfitGoal||""}
+          placeholder={`ค่าเริ่มต้น ฿${fmt((settings.dailyGoal||0)*25)}`}
+          onChange={e=>setSettings(s=>({...s,monthlyProfitGoal:+e.target.value||0}))}/>
+      </Row>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+          background:darkMode?"#1f1418":"#fff0f3",borderRadius:12,padding:"10px 12px",marginTop:4}}>
+        <span style={{fontSize:13,fontWeight:700,color:textMain}}>{darkMode?"🌙 โหมดมืด":"☀️ โหมดสว่าง"}</span>
+        <button onClick={()=>setDarkMode(x=>!x)} style={{
+            width:46,height:26,borderRadius:13,border:"none",cursor:"pointer",position:"relative",
+            background:darkMode?"#ff9eaa":"#ffdce3"}}>
+          <span style={{position:"absolute",top:2,left:darkMode?22:2,width:22,height:22,borderRadius:"50%",
+            background:"#fff",transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
+        </button>
+      </div>
+    </div>
+
+    <div style={{background:cardBg,borderRadius:16,padding:16,marginBottom:10,boxShadow:"0 4px 12px rgba(140,90,101,0.04)"}}>
+      <div style={{fontWeight:800,fontSize:13,marginBottom:10,color:textMain}}>🔐 PIN ล็อกแอป</div>
+      <PinSettings/>
+    </div>
+
+    <div style={{background:cardBg,borderRadius:16,padding:16,boxShadow:"0 4px 12px rgba(140,90,101,0.04)"}}>
+      <div style={{fontWeight:800,fontSize:13,marginBottom:10,color:textMain}}>💾 สำรองข้อมูล</div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn full color="#10b981" onClick={exportData}>📤 ส่งออกข้อมูล (.json)</Btn>
+      </div>
+      <label style={{display:"block",marginTop:8}}>
+        <div style={{background:"transparent",border:`2px solid ${darkMode?"#3a2530":"#ffdce3"}`,
+            borderRadius:12,padding:"10px 18px",fontSize:14,fontWeight:700,textAlign:"center",
+            color:textMain,cursor:"pointer"}}>📂 นำเข้าข้อมูล (.json)</div>
+        <input type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
+      </label>
+      <div style={{fontSize:10,color:textSub,marginTop:8}}>
+        💡 แนะนำให้ส่งออกข้อมูลเก็บไว้เป็นประจำ ข้อมูลทั้งหมดเก็บในเครื่องนี้เท่านั้น
+      </div>
+    </div>
+  </div>}
+
+</div>
+
+{modal?.type==="addCustomer"&&<CustomerModal onSave={addC} onClose={closeModal}/>}
+{modal?.type==="editCustomer"&&<CustomerModal data={modal.data} onSave={f=>updC(modal.data.id,f)} onClose={closeModal}/>}
+{modal?.type==="deleteCustomer"&&<Modal title="⚠️ ยืนยันลบลูกค้า" onClose={closeModal}>
+  <div style={{textAlign:"center",padding:"8px 0"}}>
+    <div style={{fontSize:36,marginBottom:8}}>🗑️</div>
+    <div style={{fontWeight:800,fontSize:15,marginBottom:8,color:"#8c5a65"}}>{modal.data.name}</div>
+    <div style={{fontSize:13,color:"#b07d89",marginBottom:16}}>จะลบบัญชีและประวัติทั้งหมด ไม่สามารถกู้คืนได้</div>
+    <div style={{display:"flex",gap:8}}>
+      <Btn full color="#94a3b8" onClick={closeModal}>ยกเลิก</Btn>
+      <Btn full color="#ef4444" onClick={()=>delC(modal.data.id)}>ลบถาวร</Btn>
+    </div>
+  </div>
+</Modal>}
+{modal?.type==="addDebt"&&<DebtModal customers={customers} onSave={addD} onClose={closeModal}/>}
+{modal?.type==="editDebt"&&<DebtModal data={modal.data} customers={customers} onSave={f=>updD(modal.data.id,f)} onClose={closeModal}/>}
+{modal?.type==="editSchedule"&&<ScheduleModal debt={modal.data} onSave={sc=>updSched(modal.data.id,sc)} onClose={closeModal}/>}
+{modal?.type==="addPayment"&&<PaymentModal debt={modal.data} stats={dStats[modal.data.id]} onSave={addP} onClose={closeModal}/>}
+{modal?.type==="editPayment"&&<PaymentModal data={modal.data.payment} debt={modal.data.debt} stats={dStats[modal.data.debt.id]} onSave={f=>updP(modal.data.payment.id,f)} onClose={closeModal}/>}
+{modal?.type==="addSale"&&<SaleModal onSave={addS} onClose={closeModal}/>}
+{modal?.type==="editSale"&&<SaleModal data={modal.data} onSave={f=>updS(modal.data.id,f)} onClose={closeModal}/>}
+{modal?.type==="walletEntry"&&<WalletEntryModal dir={modal.dir} onSave={addWalletEntry} onClose={closeModal}/>}
+{modal?.type==="billing"&&<BillingModal debt={modal.data} cust={modal.cust}
+  dStats={dStats} payments={payments} schedules={schedules}
+  onSave={addP} onClose={closeModal}/>}
+{modal?.type==="userMenu"&&<Modal title="👤 บัญชีผู้ใช้" onClose={closeModal}>
+  <div style={{textAlign:"center",padding:"8px 0 16px"}}>
+    <div style={{width:64,height:64,borderRadius:"50%",background:"var(--c-accent)",
+        margin:"0 auto 10px",display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:24,fontWeight:800,color:"#fff",overflow:"hidden"}}>
+      {authUser?.photoURL
+        ?<img src={authUser.photoURL} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+        :(authUser?.email?.[0]?.toUpperCase()||"U")}
+    </div>
+    <div style={{fontWeight:800,fontSize:14,color:"var(--c-text)"}}>{authUser?.displayName||"ผู้ใช้"}</div>
+    <div style={{fontSize:11,color:"var(--c-sub)",marginTop:2}}>{authUser?.email}</div>
+    <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"center",marginTop:6}}>
+      <div style={{width:8,height:8,borderRadius:"50%",
+          background:syncStatus==="synced"?"#10b981":syncStatus==="syncing"?"#f59e0b":"#94a3b8"}}/>
+      <span style={{fontSize:10,color:"var(--c-sub)"}}>
+        {syncStatus==="synced"?`ซิงค์แล้ว · ${lastSynced?.toLocaleTimeString("th-TH")||""}`:
+         syncStatus==="syncing"?"กำลังซิงค์...":
+         syncStatus==="error"?"ซิงค์ไม่ได้ (ตรวจสอบ internet)":"ไม่ได้เชื่อมต่อ"}
+      </span>
+    </div>
+  </div>
+  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+    <button onClick={async()=>{
+      setSyncStatus("syncing");
+      try{
+        await syncDown(authUser.uid);
+        setSyncStatus("synced");setLastSynced(new Date());
+        closeModal();alert("ดึงข้อมูลจาก Cloud สำเร็จ ✅");
+      }catch(e){setSyncStatus("error");alert("เกิดข้อผิดพลาด: "+e.message);}
+    }} style={{padding:"11px 0",borderRadius:"var(--radius-sm)",border:"1px solid var(--c-border)",
+        background:"var(--c-panel)",color:"var(--c-text)",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+      🔄 ดึงข้อมูลจาก Cloud
+    </button>
+    <button onClick={async()=>{
+      setSyncStatus("syncing");
+      try{
+        const payload={};
+        SYNC_KEYS.forEach(k=>{payload[k]=lsLoadU(k,null,authUser.uid);});
+        payload._updatedAt=new Date().toISOString();
+        await window._fbDb.collection("users").doc(authUser.uid).set(payload,{merge:true});
+        setSyncStatus("synced");setLastSynced(new Date());
+        closeModal();alert("ส่งข้อมูลขึ้น Cloud สำเร็จ ✅");
+      }catch(e){setSyncStatus("error");alert("เกิดข้อผิดพลาด: "+e.message);}
+    }} style={{padding:"11px 0",borderRadius:"var(--radius-sm)",border:"1px solid var(--c-border)",
+        background:"var(--c-panel)",color:"var(--c-text)",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+      ☁️ Push ข้อมูลขึ้น Cloud ทันที
+    </button>
+    <button onClick={()=>{window._fbAuth.signOut();closeModal();}}
+      style={{padding:"11px 0",borderRadius:"var(--radius-sm)",border:"none",
+        background:"#ef444410",color:"#ef4444",fontSize:13,fontWeight:800,cursor:"pointer",
+        marginTop:6}}>
+      🚪 ออกจากระบบ
+    </button>
+  </div>
+</Modal>}
+{modal?.type==="addProduct"&&<ProductModal onSave={addPr} onClose={closeModal}/>}
+{modal?.type==="editProduct"&&<ProductModal data={modal.data} onSave={f=>updPr(modal.data.id,f)} onClose={closeModal}/>}
+{modal?.type==="pickDebtForPayment"&&<PickDebtModal debts={debts} dStats={dStats} custMap={custMap}
+  onPick={d=>setModal({type:"addPayment",data:d})} onClose={closeModal}/>}
+
+{/* ── CONFIRM DIALOG ── */}
+{confirmDlg&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",
+    backdropFilter:"blur(10px)",zIndex:1500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+  <div style={{background:"var(--c-card)",borderRadius:24,padding:28,maxWidth:320,width:"100%",
+      boxShadow:"0 24px 64px rgba(0,0,0,0.4)",textAlign:"center",border:"var(--card-border)"}}>
+    <div style={{fontSize:36,marginBottom:12}}>{confirmDlg.danger?"⚠️":"❓"}</div>
+    <div style={{fontSize:14,fontWeight:700,color:"var(--c-text)",marginBottom:20,lineHeight:1.5}}>
+      {confirmDlg.msg}
+    </div>
+    <div style={{display:"flex",gap:10}}>
+      <button onClick={closeConfirm} style={{flex:1,padding:"11px 0",borderRadius:12,border:"1.5px solid var(--c-border)",
+          background:"transparent",color:"var(--c-sub)",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+        ยกเลิก
+      </button>
+      <button onClick={()=>{confirmDlg.onOk();closeConfirm();}}
+        style={{flex:1,padding:"11px 0",borderRadius:12,border:"none",
+          background:confirmDlg.danger?"#ef4444":"var(--c-accent)",
+          color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+        ยืนยัน
+      </button>
+    </div>
+  </div>
+</div>}
+
+{/* ── PIN LOCK SCREEN ── */}
+{pinLocked&&<div style={{position:"fixed",inset:0,background:"var(--c-bg)",zIndex:2000,
+    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+  <div style={{fontSize:48,marginBottom:16}}>🔐</div>
+  <div style={{fontSize:16,fontWeight:800,color:"var(--c-text)",marginBottom:4}}>
+    {settings.shopName||"ระบบบัญชีเครดิต"}
+  </div>
+  <div style={{fontSize:12,color:"var(--c-sub)",marginBottom:24}}>กรอก PIN เพื่อเข้าใช้งาน</div>
+  <div style={{display:"flex",gap:10,marginBottom:16}}>
+    {[0,1,2,3].map(i=><div key={i} style={{width:14,height:14,borderRadius:"50%",
+        background:pinInput.length>i?"var(--c-accent)":"var(--c-border)"}}/>)}
+  </div>
+  {pinError&&<div style={{color:"#ef4444",fontSize:12,fontWeight:700,marginBottom:8}}>PIN ไม่ถูกต้อง ลองใหม่</div>}
+  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:240,width:"100%",marginBottom:12}}>
+    {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map(k=><button key={k} onClick={()=>{
+      if(k==="")return;
+      if(k==="⌫"){setPinInput(p=>p.slice(0,-1));return;}
+      const next=pinInput+k;
+      setPinInput(next);
+      if(next.length===4){
+        const saved=lsLoad("pin","");
+        if(next===saved){setPinLocked(false);setPinInput("");}
+        else{setPinError(true);setPinInput("");setTimeout(()=>setPinError(false),900);}
+      }
+    }} style={{height:56,borderRadius:14,border:"1.5px solid var(--c-border)",
+        background:k===""?"transparent":"var(--c-card)",color:"var(--c-text)",
+        fontSize:k==="⌫"?18:20,fontWeight:700,cursor:k===""?"default":"pointer",
+        boxShadow:k===""?"none":"var(--shadow-sm)"}}>
+      {k}
+    </button>)}
+  </div>
+</div>}
+```
+
+  </div>;
+}
+
+function CustomerModal({data,onSave,onClose}){
+const [f,setF]=useState({
+name:data?.name||””,phone:data?.phone||””,
+line:data?.line||””,facebook:data?.facebook||””,
+idCard:data?.idCard||””,address:data?.address||””,
+creditLimit:data?.creditLimit||””,
+});
+return<Modal title={data?“แก้ไขลูกค้า”:“เพิ่มลูกค้าใหม่”} onClose={onClose}>
+<Row label="ชื่อลูกค้า" required><input style={iStyle} value={f.name} placeholder=“สมชาย ใจดี” onChange={e=>setF(x=>({…x,name:e.target.value}))}/></Row>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr”,gap:8}}>
+<Row label="เบอร์โทร"><input style={iStyle} value={f.phone} placeholder=“08x-xxx-xxxx” onChange={e=>setF(x=>({…x,phone:e.target.value}))}/></Row>
+<Row label="Line ID"><input style={iStyle} value={f.line} placeholder=”@lineid” onChange={e=>setF(x=>({…x,line:e.target.value}))}/></Row>
+</div>
+<Row label="Facebook"><input style={iStyle} value={f.facebook} placeholder=“ชื่อ Facebook หรือลิงก์โปรไฟล์” onChange={e=>setF(x=>({…x,facebook:e.target.value}))}/></Row>
+<Row label="เลขบัตรประจำตัวประชาชน"><input style={iStyle} value={f.idCard} placeholder=“x-xxxx-xxxxx-xx-x” maxLength={17} onChange={e=>setF(x=>({…x,idCard:e.target.value}))}/></Row>
+<Row label="ที่อยู่"><textarea style={{…iStyle,minHeight:64,resize:“vertical”,fontFamily:“inherit”}} value={f.address} placeholder=“บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด” onChange={e=>setF(x=>({…x,address:e.target.value}))}/></Row>
+<Row label="วงเงินเครดิต (฿)" hint="เพดานสูงสุดที่ปล่อยได้รวมทุกบัญชี — เว้นว่างได้ถ้าไม่จำกัด">
+<input type=“number” style={iStyle} value={f.creditLimit} placeholder=“เช่น 20000” onChange={e=>setF(x=>({…x,creditLimit:e.target.value}))}/>
+</Row>
+<Btn full onClick={()=>{if(!f.name.trim()){alert(“กรุณากรอกชื่อ”);return;}onSave({…f,creditLimit:+f.creditLimit||0});}}>
+{data?“บันทึกการแก้ไข”:“เพิ่มลูกค้า”}
+</Btn>
+</Modal>;
+}
+
+function DebtModal({data,customers,onSave,onClose}){
+const [f,setF]=useState({
+customerId:data?.customerId||””,
+creditType:data?.creditType||“bad_debt”,
+splitMode:data?.splitMode||“shared”,
+principalMom:data?.principalMom||””,
+principalUs:data?.principalUs||””,
+momProfitRatio:data?.momProfitRatio??0.5,
+creditPrice:data?.creditPrice||””,
+totalInstallments:data?.totalInstallments||””,
+startDate:data?.startDate||today(),
+interestAmt:data?.interestAmt||””,
+note:data?.note||””,
+});
+const F=x=>setF(p=>({…p,…x}));
+const pM=toN(f.principalMom), pU=toN(f.principalUs), cp=toN(f.creditPrice);
+const mr=+f.momProfitRatio;
+const profit=Math.max(0,cp-pM-pU);
+const totalCap=pM+pU||1;
+
+// Preview กำไรตาม mode ที่เลือก
+const prevMom = f.splitMode===“separate” ? profit*(pM/totalCap)
+: profit*mr;
+const prevUs  = f.splitMode===“separate” ? profit*(pU/totalCap)
+: profit*(1-mr);
+
+const MODES=[
+{
+value:“shared”,
+icon:“🤝”,
+label:“ทุนรวมกัน · กำไรแบ่ง %”,
+desc:“ทั้งสองฝ่ายออกทุนรวม แล้วแบ่งกำไรตาม % ที่ตั้งเอง”,
+},
+{
+value:“separate”,
+icon:“🔀”,
+label:“ทุนแยกขาด · กำไรตามสัดส่วนทุน”,
+desc:“ทุนและกำไรแยกของใครของมัน — กำไรแต่ละฝ่ายคิดตาม % ทุนที่ออก”,
+},
+{
+value:“split_cap”,
+icon:“⚖️”,
+label:“ทุนแยก · แต่กำไรแบ่ง % ร่วมกัน”,
+desc:“ทุนออกแยกชัดเจน แต่กำไรรวมก่อนแล้วค่อยแบ่งตาม % slider”,
+},
+];
+
+function save(){
+const miss=[];
+if(!f.customerId)miss.push(“ลูกค้า”);
+if(!(cp>0))miss.push(“ยอดเครดิตรวม”);
+if(!(+f.totalInstallments>0))miss.push(“จำนวนงวด”);
+if(miss.length){alert(“กรุณากรอก: “+miss.join(”, “));return;}
+onSave(normalizeDebt({…f,creditPrice:cp,
+totalInstallments:+f.totalInstallments,
+momProfitRatio:mr, interestAmt:toN(f.interestAmt)}));
+}
+
+const panelStyle=(color)=>({
+borderRadius:“var(–radius-sm)”,padding:“12px 14px”,
+background:color+“10”,border:`1.5px solid ${color}30`,marginBottom:8,
+});
+
+return<Modal title={data?“แก้ไขบัญชีเครดิต”:“เพิ่มบัญชีเครดิต”} onClose={onClose} wide>
+
+```
+{/* ── ลูกค้า + ประเภท ── */}
+<Row label="ลูกค้า" required>
+  <select style={iStyle} value={f.customerId} onChange={e=>F({customerId:e.target.value})}>
+    <option value="">-- เลือกลูกค้า --</option>
+    {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+  </select>
+</Row>
+<Row label="ประเภทเครดิต" required>
+  <select style={iStyle} value={f.creditType} onChange={e=>F({creditType:e.target.value})}>
+    {CREDIT_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+  </select>
+</Row>
+
+{/* ── ยอดเครดิตรวม ── */}
+<Row label="ยอดเครดิตรวม (ที่ลูกค้าต้องจ่ายทั้งหมด)" required>
+  <input type="number" style={iStyle} value={f.creditPrice} placeholder="เช่น 6500"
+    onChange={e=>F({creditPrice:e.target.value})}/>
+</Row>
+
+{/* ── เลือก Mode ── */}
+<div style={{fontSize:11,fontWeight:800,color:"var(--c-sub)",marginBottom:6,
+    textTransform:"uppercase",letterSpacing:".06em"}}>รูปแบบทุน & กำไร</div>
+<div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:14}}>
+  {MODES.map(m=>{
+    const active=f.splitMode===m.value;
+    return<button key={m.value} type="button" onClick={()=>F({splitMode:m.value})}
+      style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",
+        borderRadius:"var(--radius-sm)",cursor:"pointer",textAlign:"left",width:"100%",
+        border:active?"2px solid var(--c-accent)":"1.5px solid var(--c-border)",
+        background:active?"color-mix(in srgb,var(--c-accent) 8%,var(--c-card))":"var(--c-panel)",
+        transition:"all .15s"}}>
+      <span style={{fontSize:20,flexShrink:0}}>{m.icon}</span>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:800,fontSize:12.5,
+            color:active?"var(--c-accent)":"var(--c-text)"}}>{m.label}</div>
+        <div style={{fontSize:10,color:"var(--c-sub)",marginTop:1,lineHeight:1.4}}>{m.desc}</div>
+      </div>
+      <div style={{width:18,height:18,borderRadius:"50%",flexShrink:0,
+          border:active?"none":"1.5px solid var(--c-border)",
+          background:active?"var(--c-accent)":"transparent",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          color:"#fff",fontSize:10,fontWeight:900}}>
+        {active?"✓":""}
+      </div>
+    </button>;
+  })}
+</div>
+
+{/* ── ช่องทุน ── */}
+
+{/* MODE A: shared — ทุนรวม กำหนด % กำไรแม่ด้วยตัวเลข */}
+{f.splitMode==="shared"&&<>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+    <div style={panelStyle("#8b5cf6")}>
+      <div style={{fontSize:11,fontWeight:800,color:"#8b5cf6",marginBottom:6}}>💜 ทุนแม่</div>
+      <input type="number" style={iStyle} value={f.principalMom} placeholder="0"
+        onChange={e=>F({principalMom:e.target.value})}/>
+    </div>
+    <div style={panelStyle("#3b82f6")}>
+      <div style={{fontSize:11,fontWeight:800,color:"#3b82f6",marginBottom:6}}>🔵 ทุนเรา</div>
+      <input type="number" style={iStyle} value={f.principalUs} placeholder="0"
+        onChange={e=>F({principalUs:e.target.value})}/>
+    </div>
+  </div>
+  <div style={{background:"var(--c-panel)",borderRadius:"var(--radius-sm)",
+      padding:"12px 14px",marginBottom:10,border:"1px solid var(--c-border)"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+      <span style={{fontSize:11,fontWeight:800,color:"var(--c-text)"}}>แบ่งกำไร</span>
+      <span style={{fontSize:10,color:"var(--c-sub)"}}>รวม 100%</span>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+      <div>
+        <div style={{fontSize:10,color:"#8b5cf6",fontWeight:700,marginBottom:3}}>💜 กำไรแม่ (%)</div>
+        <input type="number" min="0" max="100" step="5" style={iStyle}
+          value={Math.round(mr*100)}
+          onChange={e=>F({momProfitRatio:Math.min(1,Math.max(0,(+e.target.value||0)/100))})}/>
+      </div>
+      <div>
+        <div style={{fontSize:10,color:"#10b981",fontWeight:700,marginBottom:3}}>🟢 กำไรเรา (%)</div>
+        <input type="number" min="0" max="100" step="5" style={iStyle}
+          value={Math.round((1-mr)*100)}
+          onChange={e=>F({momProfitRatio:Math.min(1,Math.max(0,1-(+e.target.value||0)/100))})}/>
+      </div>
+    </div>
+    {cp>0&&profit>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:8}}>
+      <div style={{background:"#8b5cf610",borderRadius:8,padding:"6px 8px",textAlign:"center"}}>
+        <div style={{fontSize:9,color:"#8b5cf6"}}>กำไรแม่ได้</div>
+        <div style={{fontWeight:800,color:"#8b5cf6"}}>฿{fmt(prevMom)}</div>
+      </div>
+      <div style={{background:"#10b98110",borderRadius:8,padding:"6px 8px",textAlign:"center"}}>
+        <div style={{fontSize:9,color:"#10b981"}}>กำไรเราได้</div>
+        <div style={{fontWeight:800,color:"#10b981"}}>฿{fmt(prevUs)}</div>
+      </div>
+    </div>}
+  </div>
+</>}
+
+{/* MODE B: separate — ทุนแยกขาด กำไรตาม % ทุน */}
+{f.splitMode==="separate"&&<>
+  <div style={{background:"var(--c-panel)",borderRadius:"var(--radius-sm)",
+      padding:12,marginBottom:10,border:"1px solid var(--c-border)"}}>
+    <div style={{fontSize:10,color:"var(--c-sub)",marginBottom:10}}>
+      ℹ️ กำไรแต่ละฝ่ายจะคำนวณจากสัดส่วนทุนโดยอัตโนมัติ — ไม่มี slider
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+      <div style={panelStyle("#8b5cf6")}>
+        <div style={{fontSize:11,fontWeight:800,color:"#8b5cf6",marginBottom:6}}>
+          💜 ฝ่ายแม่ (ทุน + กำไรของแม่)
+        </div>
+        <Row label="ทุนแม่ (฿)">
+          <input type="number" style={iStyle} value={f.principalMom} placeholder="0"
+            onChange={e=>F({principalMom:e.target.value})}/>
+        </Row>
+        {cp>0&&pM>0&&<div style={{fontSize:10,color:"#8b5cf6",marginTop:4,fontWeight:700}}>
+          สัดส่วน {Math.round(pM/totalCap*100)}%
+          → กำไรแม่ ≈ <strong>฿{fmt(prevMom)}</strong>
+        </div>}
+      </div>
+      <div style={panelStyle("#3b82f6")}>
+        <div style={{fontSize:11,fontWeight:800,color:"#3b82f6",marginBottom:6}}>
+          🔵 ฝ่ายเรา (ทุน + กำไรของเรา)
+        </div>
+        <Row label="ทุนเรา (฿)">
+          <input type="number" style={iStyle} value={f.principalUs} placeholder="0"
+            onChange={e=>F({principalUs:e.target.value})}/>
+        </Row>
+        {cp>0&&pU>0&&<div style={{fontSize:10,color:"#3b82f6",marginTop:4,fontWeight:700}}>
+          สัดส่วน {Math.round(pU/totalCap*100)}%
+          → กำไรเรา ≈ <strong>฿{fmt(prevUs)}</strong>
+        </div>}
+      </div>
+    </div>
+  </div>
+</>}
+
+{/* MODE C: split_cap — ทุนแยก กำไรแบ่ง % ด้วยตัวเลข */}
+{f.splitMode==="split_cap"&&<>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+    <div style={panelStyle("#8b5cf6")}>
+      <div style={{fontSize:11,fontWeight:800,color:"#8b5cf6",marginBottom:6}}>💜 ทุนแม่</div>
+      <input type="number" style={iStyle} value={f.principalMom} placeholder="0"
+        onChange={e=>F({principalMom:e.target.value})}/>
+      {pM>0&&cp>0&&<div style={{fontSize:10,color:"#8b5cf6",marginTop:4}}>
+        สัดส่วนทุน {Math.round(pM/totalCap*100)}%
+      </div>}
+    </div>
+    <div style={panelStyle("#3b82f6")}>
+      <div style={{fontSize:11,fontWeight:800,color:"#3b82f6",marginBottom:6}}>🔵 ทุนเรา</div>
+      <input type="number" style={iStyle} value={f.principalUs} placeholder="0"
+        onChange={e=>F({principalUs:e.target.value})}/>
+      {pU>0&&cp>0&&<div style={{fontSize:10,color:"#3b82f6",marginTop:4}}>
+        สัดส่วนทุน {Math.round(pU/totalCap*100)}%
+      </div>}
+    </div>
+  </div>
+  <div style={{background:"var(--c-panel)",borderRadius:"var(--radius-sm)",
+      padding:"12px 14px",marginBottom:10,border:"1px solid var(--c-border)"}}>
+    <div style={{fontSize:10,color:"var(--c-sub)",marginBottom:8}}>
+      💡 กำไรรวม ฿{fmt(profit)} — กำหนด % แบ่งให้แม่และเรา
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+      <div>
+        <div style={{fontSize:10,color:"#8b5cf6",fontWeight:700,marginBottom:3}}>💜 กำไรแม่ (%)</div>
+        <input type="number" min="0" max="100" step="5" style={iStyle}
+          value={Math.round(mr*100)}
+          onChange={e=>F({momProfitRatio:Math.min(1,Math.max(0,(+e.target.value||0)/100))})}/>
+        {cp>0&&<div style={{fontSize:10,color:"#8b5cf6",marginTop:3,fontWeight:700}}>= ฿{fmt(prevMom)}</div>}
+      </div>
+      <div>
+        <div style={{fontSize:10,color:"#10b981",fontWeight:700,marginBottom:3}}>🟢 กำไรเรา (%)</div>
+        <input type="number" min="0" max="100" step="5" style={iStyle}
+          value={Math.round((1-mr)*100)}
+          onChange={e=>F({momProfitRatio:Math.min(1,Math.max(0,1-(+e.target.value||0)/100))})}/>
+        {cp>0&&<div style={{fontSize:10,color:"#10b981",marginTop:3,fontWeight:700}}>= ฿{fmt(prevUs)}</div>}
+      </div>
+    </div>
+  </div>
+</>}
+
+{/* ── Preview สรุปรวม ── */}
+{cp>0&&(pM>0||pU>0)&&<div style={{
+    background:"linear-gradient(135deg,var(--c-accent)08,var(--c-accent)04)",
+    borderRadius:"var(--radius-md)",padding:"12px 14px",marginBottom:12,
+    border:"1px solid var(--c-accent)25"}}>
+  <div style={{fontSize:10,fontWeight:800,color:"var(--c-sub)",marginBottom:8,
+      textTransform:"uppercase",letterSpacing:".05em"}}>สรุปการแบ่ง</div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:6}}>
+    <div style={{background:"#8b5cf618",borderRadius:"var(--radius-sm)",padding:"10px 12px",border:"1px solid #8b5cf625"}}>
+      <div style={{fontSize:9,color:"#8b5cf6",fontWeight:800,marginBottom:3}}>💜 แม่ได้</div>
+      <div style={{fontSize:15,fontWeight:900,color:"#8b5cf6"}}>ทุน ฿{fmt(pM)}</div>
+      <div style={{fontSize:13,fontWeight:800,color:"#a855f7",marginTop:1}}>+ กำไร ฿{fmt(prevMom)}</div>
+      <div style={{fontSize:10,color:"#8b5cf6",marginTop:3,fontWeight:700,
+          borderTop:"1px solid #8b5cf620",paddingTop:3}}>รวม ฿{fmt(pM+prevMom)}</div>
+    </div>
+    <div style={{background:"#3b82f618",borderRadius:"var(--radius-sm)",padding:"10px 12px",border:"1px solid #3b82f625"}}>
+      <div style={{fontSize:9,color:"#3b82f6",fontWeight:800,marginBottom:3}}>🔵 เราได้</div>
+      <div style={{fontSize:15,fontWeight:900,color:"#3b82f6"}}>ทุน ฿{fmt(pU)}</div>
+      <div style={{fontSize:13,fontWeight:800,color:"#10b981",marginTop:1}}>+ กำไร ฿{fmt(prevUs)}</div>
+      <div style={{fontSize:10,color:"#3b82f6",marginTop:3,fontWeight:700,
+          borderTop:"1px solid #3b82f620",paddingTop:3}}>รวม ฿{fmt(pU+prevUs)}</div>
+    </div>
+  </div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}}>
+    <MCard label="กำไรรวม"  value={`฿${fmt(profit)}`}    color="#f59e0b"/>
+    <MCard label="ทุนรวม"   value={`฿${fmt(pM+pU)}`}     color="#64748b"/>
+    <MCard label="ยอดเครดิต" value={`฿${fmt(cp)}`}        color="var(--c-accent)"/>
+  </div>
+</div>}
+
+{/* ── งวด / ดอก / วันเริ่ม / หมายเหตุ ── */}
+<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+  <Row label="จำนวนงวด" required>
+    <input type="number" style={iStyle} value={f.totalInstallments} placeholder="10"
+      onChange={e=>F({totalInstallments:e.target.value})}/>
+  </Row>
+  <Row label="ค่าดอกต่องวด" hint="กรณีจ่ายแต่ดอก">
+    <input type="number" style={iStyle} value={f.interestAmt} placeholder="0"
+      onChange={e=>F({interestAmt:e.target.value})}/>
+  </Row>
+</div>
+<Row label="วันเริ่มต้น">
+  <input type="date" style={iStyle} value={f.startDate}
+    onChange={e=>F({startDate:e.target.value})}/>
+</Row>
+<Row label="หมายเหตุ">
+  <input style={iStyle} value={f.note} placeholder="(ไม่บังคับ)"
+    onChange={e=>F({note:e.target.value})}/>
+</Row>
+<Btn full onClick={save}>{data?"บันทึกการแก้ไข":"บันทึกบัญชี"}</Btn>
+```
+
+</Modal>;
+}
+
+function ScheduleModal({debt,onSave,onClose}){
+const existing=debt.schedule||{};
+const [f,setF]=useState({
+payMode:existing.payMode||“principal_interest”,
+freq:existing.freq||“monthly”,
+startDate:existing.startDate||debt.startDate||today(),
+customDates:existing.customDates||[],
+});
+const [newDate,setNewDate]=useState(today());
+const [newAmt,setNewAmt]=useState(””);
+const [newLabel,setNewLabel]=useState(””);
+
+function addCustomDate(){
+if(!newDate||!newAmt){alert(“กรอกวันที่และยอด”);return;}
+setF(x=>({…x,customDates:[…x.customDates,{date:newDate,amount:+newAmt,label:newLabel}].sort((a,b)=>a.date.localeCompare(b.date))}));
+setNewDate(today());setNewAmt(””);setNewLabel(””);
+}
+
+const preview=useMemo(()=>buildSchedule({…debt,schedule:f},[]).slice(0,10),[f,debt]);
+
+return<Modal title="⏰ ตั้งตารางนัดชำระ" onClose={onClose} wide>
+<Row label="รูปแบบการชำระ" required>
+<select style={iStyle} value={f.payMode} onChange={e=>setF(x=>({…x,payMode:e.target.value}))}>
+{PAY_MODES.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
+</select>
+</Row>
+{f.payMode===“interest_only”&&<div style={{background:”#fff7ed”,border:“1px solid #fed7aa”,borderRadius:12,
+padding:10,marginBottom:10,fontSize:12,color:”#92400e”}}>
+💡 จ่ายแต่ดอก — ยอดต้นไม่ลด จนกว่าจะโอนชำระต้นทีหลัง<br/>
+ค่าดอกต่องวดดึงจากช่อง “ค่าดอกต่องวด” ที่กรอกในบัญชี
+</div>}
+<Row label="ความถี่การชำระ" required>
+<select style={iStyle} value={f.freq} onChange={e=>setF(x=>({…x,freq:e.target.value}))}>
+{FREQ.map(fr=><option key={fr.value} value={fr.value}>{fr.label}</option>)}
+</select>
+</Row>
+{f.freq!==“custom”&&<Row label="วันเริ่มต้นนัดชำระ" required>
+<input type=“date” style={iStyle} value={f.startDate} onChange={e=>setF(x=>({…x,startDate:e.target.value}))}/>
+</Row>}
+
+```
+{f.freq==="custom"&&<div>
+  <div style={{fontWeight:700,fontSize:12,color:"#8c5a65",marginBottom:8}}>📅 เพิ่มวันนัดชำระรายครั้ง</div>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
+    <input type="date" style={iStyle} value={newDate} onChange={e=>setNewDate(e.target.value)}/>
+    <input type="number" style={iStyle} value={newAmt} placeholder="ยอด (฿)" onChange={e=>setNewAmt(e.target.value)}/>
+    <input style={iStyle} value={newLabel} placeholder="หมายเหตุ" onChange={e=>setNewLabel(e.target.value)}/>
+  </div>
+  <Btn small color="#6366f1" onClick={addCustomDate}>+ เพิ่มวัน</Btn>
+  {f.customDates.length>0&&<div style={{marginTop:8,maxHeight:160,overflowY:"auto"}}>
+    {f.customDates.map((cd,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",
+        alignItems:"center",fontSize:12,padding:"4px 0",borderBottom:"1px solid #ffdce3"}}>
+      <span style={{color:"#8c5a65"}}>{thDate(cd.date)} — ฿{fmt(cd.amount)} {cd.label&&`· ${cd.label}`}</span>
+      <button onClick={()=>setF(x=>({...x,customDates:x.customDates.filter((_,j)=>j!==i)}))}
+        style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"2px 7px",
+          fontSize:10,cursor:"pointer",color:"#ef4444"}}>ลบ</button>
+    </div>)}
+  </div>}
+</div>}
+
+{preview.length>0&&f.freq!=="custom"&&<div style={{marginTop:12}}>
+  <div style={{fontWeight:700,fontSize:12,color:"#8c5a65",marginBottom:6}}>👁 ตัวอย่างนัด 10 รายการแรก</div>
+  {preview.map((p,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",
+      fontSize:12,padding:"3px 0",borderBottom:"1px solid #fff0f3",color:"#8c5a65"}}>
+    <span>{thDate(p.date)}</span>
+    <span style={{fontWeight:700}}>฿{fmt(p.amtDue)}</span>
+  </div>)}
+</div>}
+
+<div style={{marginTop:14}}>
+  <Btn full color="#f97316" onClick={()=>onSave(f)}>บันทึกตารางนัด</Btn>
+</div>
+```
+
+</Modal>;
+}
+
+function PaymentModal({data,debt,stats,onSave,onClose}){
+const [f,setF]=useState({
+debtId:debt.id,date:data?.date||today(),
+amount:data?.amount||””,
+payType:data?.payType||(debt.schedule?.payMode||“principal_interest”),
+note:data?.note||””
+});
+const sp=calcSplit(debt);const amt=+f.amount||0;
+return<Modal title={data?“แก้ไขการชำระ”:“บันทึกรับเงิน”} onClose={onClose}>
+<div style={{background:”#fff0f3”,borderRadius:12,padding:10,marginBottom:12,fontSize:13,border:“1px solid #ffdce3”}}>
+<div style={{fontWeight:800,color:”#8c5a65”}}>{debt.note||“บัญชีเครดิต”}</div>
+<div style={{color:”#b07d89”,fontSize:12,marginTop:2}}>
+ยอดต้นคงเหลือ ฿{fmt(stats.remaining)} | งวดปกติ ฿{fmt(stats.installAmt)}
+{debt.interestAmt>0&&<> | ดอกต่องวด ฿{fmt(debt.interestAmt)}</>}
+</div>
+</div>
+<Row label="รูปแบบที่รับ">
+<select style={iStyle} value={f.payType} onChange={e=>setF(x=>({…x,payType:e.target.value}))}>
+<option value="principal_interest">ต้น + ดอก</option>
+<option value="interest_only">จ่ายแต่ดอก</option>
+</select>
+</Row>
+<Row label="วันที่รับเงิน" required><input type=“date” style={iStyle} value={f.date} onChange={e=>setF(x=>({…x,date:e.target.value}))}/></Row>
+<Row label="จำนวนเงินที่รับ" required>
+<input type=“number” style={iStyle} value={f.amount} placeholder={`เช่น ${fmt(stats.installAmt)}`}
+onChange={e=>setF(x=>({…x,amount:e.target.value}))}/>
+</Row>
+{amt>0&&f.payType===“principal_interest”&&<div style={{background:”#eff6ff”,border:“1px solid #bfdbfe”,
+borderRadius:12,padding:10,marginBottom:10}}>
+<div style={{fontSize:11,color:”#64748b”,marginBottom:6}}>การแยกยอด ฿{fmt(amt)}</div>
+<div style={{display:“grid”,gridTemplateColumns:“repeat(4,1fr)”,gap:5}}>
+<MCard label=“ทุนแม่คืน” value={`฿${fmt(amt*sp.momRatio)}`}       color=”#8b5cf6”/>
+<MCard label=“ทุนเราคืน” value={`฿${fmt(amt*sp.usRatio)}`}        color=”#3b82f6”/>
+<MCard label=“กำไรแม่”   value={`฿${fmt(amt*sp.momProfitRatio)}`} color=”#a855f7”/>
+<MCard label=“กำไรเรา”   value={`฿${fmt(amt*sp.usProfitRatio)}`}  color=”#10b981”/>
+</div>
+</div>}
+{amt>0&&f.payType===“interest_only”&&<div style={{background:”#fff7ed”,border:“1px solid #fed7aa”,
+borderRadius:12,padding:10,marginBottom:10,fontSize:12,color:”#92400e”}}>
+💡 บันทึกเป็นรายได้ดอก — ยอดต้น ฿{fmt(stats.remaining)} คงเดิม
+</div>}
+<Row label="หมายเหตุ"><input style={iStyle} value={f.note} placeholder=“เช่น โอนเศษ, จ่ายสด” onChange={e=>setF(x=>({…x,note:e.target.value}))}/></Row>
+<Btn full color=”#10b981” onClick={()=>{if(!f.date||!(amt>0)){alert(“กรุณากรอกวันที่และจำนวนเงิน”);return;}onSave({…f,amount:+f.amount});}}>
+{data?“บันทึกการแก้ไข”:“บันทึกรับเงิน”}
+</Btn>
+</Modal>;
+}
+
+function SaleModal({data,onSave,onClose}){
+const [f,setF]=useState({label:data?.label||””,date:data?.date||today(),revenue:data?.revenue||””,cost:data?.cost||””,note:data?.note||””});
+const profit=(+f.revenue||0)-(+f.cost||0);
+return<Modal title={data?“แก้ไขขายสด”:“เพิ่มรอบขายสด”} onClose={onClose}>
+<Row label="ชื่อรอบ"><input style={iStyle} value={f.label} placeholder=“เช่น ขายสดรอบเช้า” onChange={e=>setF(x=>({…x,label:e.target.value}))}/></Row>
+<Row label="วันที่" required><input type=“date” style={iStyle} value={f.date} onChange={e=>setF(x=>({…x,date:e.target.value}))}/></Row>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr”,gap:8}}>
+<Row label="รายได้ (฿)" required><input type=“number” style={iStyle} value={f.revenue} placeholder=“ยอดขาย” onChange={e=>setF(x=>({…x,revenue:e.target.value}))}/></Row>
+<Row label="ต้นทุน (฿)"><input type=“number” style={iStyle} value={f.cost} placeholder=“ทุน” onChange={e=>setF(x=>({…x,cost:e.target.value}))}/></Row>
+</div>
+{(+f.revenue>0)&&<div style={{background:”#f0fdf4”,border:“1px solid #86efac”,borderRadius:12,
+padding:10,marginBottom:10,textAlign:“center”}}>
+<div style={{fontSize:11,color:”#166534”}}>กำไรรอบนี้</div>
+<div style={{fontSize:22,fontWeight:900,color:profit>=0?”#15803d”:”#ef4444”}}>฿{fmt(profit)}</div>
+</div>}
+<Row label="หมายเหตุ"><input style={iStyle} value={f.note} placeholder=”(ไม่บังคับ)” onChange={e=>setF(x=>({…x,note:e.target.value}))}/></Row>
+<Btn full color=”#f59e0b” onClick={()=>{if(!f.date||!(+f.revenue>0)){alert(“กรุณากรอกวันที่และรายได้”);return;}onSave({…f,revenue:+f.revenue,cost:+f.cost||0});}}>
+{data?“บันทึกการแก้ไข”:“บันทึกรอบขาย”}
+</Btn>
+</Modal>;
+}
+
+function WalletEntryModal({dir:initDir,onSave,onClose}){
+const [f,setF]=useState({dir:initDir||“in”,amount:””,note:””,date:””});
+const todayStr=new Date().toISOString().slice(0,10);
+const isIn=f.dir===“in”;
+return<Modal title="💰 บันทึกเงินทุนหมุนเวียน" onClose={onClose}>
+{/* เลือกทิศทาง */}
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr”,gap:8,marginBottom:12}}>
+<button onClick={()=>setF(x=>({…x,dir:“in”}))} style={{
+padding:“10px 0”,borderRadius:12,cursor:“pointer”,fontWeight:800,fontSize:13,
+background:f.dir===“in”?”#10b981”:“transparent”,color:f.dir===“in”?”#fff”:”#b07d89”,
+boxShadow:f.dir===“in”?“0 4px 12px rgba(16,185,129,0.3)”:“none”,
+border:f.dir===“in”?“2px solid transparent”:“1.5px solid #ffdce3”}}>
++ เพิ่มเงินทุน
+</button>
+<button onClick={()=>setF(x=>({…x,dir:“out”}))} style={{
+padding:“10px 0”,borderRadius:12,cursor:“pointer”,fontWeight:800,fontSize:13,
+background:f.dir===“out”?”#ef4444”:“transparent”,color:f.dir===“out”?”#fff”:”#b07d89”,
+boxShadow:f.dir===“out”?“0 4px 12px rgba(239,68,68,0.3)”:“none”,
+border:f.dir===“out”?“2px solid transparent”:“1.5px solid #ffdce3”}}>
+− ถอนเงิน
+</button>
+</div>
+<Row label="จำนวนเงิน (฿)" required>
+<input type=“number” style={iStyle} value={f.amount} placeholder=“0”
+onChange={e=>setF(x=>({…x,amount:e.target.value}))} autoFocus/>
+</Row>
+{+f.amount>0&&<div style={{background:isIn?”#f0fdf4”:”#fef2f2”,borderRadius:12,padding:“8px 12px”,
+marginBottom:10,textAlign:“center”,border:`1px solid ${isIn?"#86efac":"#fecaca"}`}}>
+<span style={{fontSize:18,fontWeight:900,color:isIn?”#15803d”:”#ef4444”}}>
+{isIn?”+”:”-”}฿{Math.round(+f.amount).toLocaleString(“th-TH”)}
+</span>
+</div>}
+<Row label="หมายเหตุ (ไม่บังคับ)">
+<input style={iStyle} value={f.note}
+placeholder={isIn?“เช่น เติมทุนจากกำไรสะสม, รับเงินโอนแม่”:“เช่น ถอนเงินไปใช้, โอนคืนแม่”}
+onChange={e=>setF(x=>({…x,note:e.target.value}))}/>
+</Row>
+<Btn full color={isIn?”#10b981”:”#ef4444”}
+onClick={()=>{
+if(!(+f.amount>0)){alert(“กรุณากรอกจำนวนเงิน”);return;}
+onSave({dir:f.dir,amount:+f.amount,note:f.note});
+}}>
+บันทึก{isIn?“เพิ่มทุน”:“ถอนเงิน”}
+</Btn>
+</Modal>;
+}
+
+function ProductModal({data,onSave,onClose}){
+const [f,setF]=useState({
+name:data?.name||””,costPrice:data?.costPrice||””,sellPrice:data?.sellPrice||””,
+stock:data?.stock??””,note:data?.note||””
+});
+const margin=(+f.sellPrice>0)?(((+f.sellPrice-+f.costPrice)/+f.sellPrice)*100):0;
+function save(){
+if(!f.name.trim()){alert(“กรุณากรอกชื่อสินค้า”);return;}
+onSave({…f,costPrice:+f.costPrice||0,sellPrice:+f.sellPrice||0,stock:+f.stock||0});
+}
+return<Modal title={data?“แก้ไขสินค้า”:“เพิ่มสินค้าใหม่”} onClose={onClose}>
+<Row label="ชื่อสินค้า" required>
+<input style={iStyle} value={f.name} placeholder=“เช่น มือถือ X” onChange={e=>setF(x=>({…x,name:e.target.value}))}/>
+</Row>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr”,gap:8}}>
+<Row label="ราคาทุน (฿)"><input type=“number” style={iStyle} value={f.costPrice} placeholder=“0” onChange={e=>setF(x=>({…x,costPrice:e.target.value}))}/></Row>
+<Row label="ราคาขาย (฿)"><input type=“number” style={iStyle} value={f.sellPrice} placeholder=“0” onChange={e=>setF(x=>({…x,sellPrice:e.target.value}))}/></Row>
+</div>
+{(+f.sellPrice>0)&&<div style={{background:”#f0fdf4”,border:“1px solid #86efac”,borderRadius:12,
+padding:10,marginBottom:10,textAlign:“center”}}>
+<div style={{fontSize:11,color:”#166534”}}>กำไรต่อชิ้น</div>
+<div style={{fontSize:18,fontWeight:900,color:”#15803d”}}>฿{fmt(+f.sellPrice-+f.costPrice)} ({Math.round(margin)}%)</div>
+</div>}
+<Row label="จำนวนคงเหลือในสต็อก"><input type=“number” style={iStyle} value={f.stock} placeholder=“0” onChange={e=>setF(x=>({…x,stock:e.target.value}))}/></Row>
+<Row label="หมายเหตุ"><input style={iStyle} value={f.note} placeholder=”(ไม่บังคับ)” onChange={e=>setF(x=>({…x,note:e.target.value}))}/></Row>
+<Btn full color="#6366f1" onClick={save}>{data?“บันทึกการแก้ไข”:“เพิ่มสินค้า”}</Btn>
+</Modal>;
+}
+
+function PickDebtModal({debts,dStats,custMap,onPick,onClose}){
+const [q,setQ]=useState(””);
+const open=debts.filter(d=>(dStats[d.id]?.remaining||0)>0);
+const filtered=open.filter(d=>(custMap[d.customerId]?.name||””).toLowerCase().includes(q.toLowerCase()));
+return<Modal title="💵 เลือกบัญชีที่จะรับชำระ" onClose={onClose}>
+<input style={{…iStyle,marginBottom:10}} value={q} onChange={e=>setQ(e.target.value)}
+placeholder=“🔍 ค้นหาชื่อลูกค้า…” autoFocus/>
+{filtered.length===0&&<div style={{textAlign:“center”,color:”#b07d89”,padding:20}}>ไม่พบลูกหนี้ที่ยังค้างชำระ</div>}
+<div style={{maxHeight:380,overflowY:“auto”}}>
+{filtered.map(d=>{
+const s=dStats[d.id];const c=custMap[d.customerId];
+return<button key={d.id} onClick={()=>onPick(d)} style={{display:“block”,width:“100%”,textAlign:“left”,
+background:”#fff0f3”,border:“1px solid #ffdce3”,borderRadius:12,padding:“10px 12px”,
+marginBottom:8,cursor:“pointer”}}>
+<div style={{display:“flex”,justifyContent:“space-between”,alignItems:“center”}}>
+<div>
+<div style={{fontWeight:800,fontSize:13,color:”#8c5a65”}}>{c?.name||“ไม่ระบุ”}</div>
+<div style={{display:“flex”,gap:4,marginTop:3}}><Tag type={d.creditType}/></div>
+</div>
+<div style={{fontWeight:900,fontSize:14,color:”#ef4444”}}>฿{fmt(s.remaining)}</div>
+</div>
+</button>;
+})}
+</div>
+</Modal>;
+}
+
+// ── CALENDAR TAB ─────────────────────────────────────────────────────────────
+function CalendarTab({debts,dStats,payments,custMap,setModal,textMain,textSub,cardBg}){
+const [calDate,setCalDate]=useState(today().slice(0,7)); // “YYYY-MM”
+const [y,m]=calDate.split(”-”).map(Number);
+
+const firstDay=new Date(y,m-1,1).getDay(); // 0=Sun
+const daysInMonth=new Date(y,m,0).getDate();
+
+// สร้าง map: date → [{debt, amt, cust}]
+const dayMap=useMemo(()=>{
+const map={};
+debts.forEach(d=>{
+if((dStats[d.id]?.remaining||0)<=0) return;
+const full=buildFullSchedule(d);
+full.forEach(s=>{
+if(mKey(s.date)!==calDate) return;
+const dd=s.date.slice(8,10).replace(/^0/,””);
+if(!map[dd]) map[dd]=[];
+map[dd].push({debt:d,amt:s.amtDue,cust:custMap[d.customerId]});
+});
+});
+return map;
+},[debts,dStats,payments,custMap,calDate]);
+
+const todayD=today().slice(8,10).replace(/^0/,””);
+const isThisMonth=calDate===today().slice(0,7);
+
+const cells=[];
+for(let i=0;i<firstDay;i++) cells.push(null);
+for(let d=1;d<=daysInMonth;d++) cells.push(d);
+
+const [selectedDay,setSelectedDay]=useState(null);
+const selectedItems=selectedDay?dayMap[String(selectedDay)]||[]:[];
+
+return<div>
+<div style={{display:“flex”,justifyContent:“space-between”,alignItems:“center”,marginBottom:12}}>
+<div style={{fontSize:14,fontWeight:900,color:textMain}}>📅 {mLabel(calDate)}</div>
+<div style={{display:“flex”,gap:6}}>
+<button onClick={()=>{const d=new Date(y,m-2,1);setCalDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);setSelectedDay(null);}}
+style={{padding:“5px 12px”,borderRadius:10,border:“1px solid var(–c-border)”,
+background:“var(–c-panel)”,cursor:“pointer”,color:textSub,fontWeight:700}}>‹</button>
+<button onClick={()=>{setCalDate(today().slice(0,7));setSelectedDay(null);}}
+style={{padding:“5px 12px”,borderRadius:10,border:“none”,
+background:“var(–c-accent)”,cursor:“pointer”,color:”#fff”,fontWeight:700,fontSize:11}}>วันนี้</button>
+<button onClick={()=>{const d=new Date(y,m,1);setCalDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);setSelectedDay(null);}}
+style={{padding:“5px 12px”,borderRadius:10,border:“1px solid var(–c-border)”,
+background:“var(–c-panel)”,cursor:“pointer”,color:textSub,fontWeight:700}}>›</button>
+</div>
+</div>
+
+```
+{/* Calendar grid */}
+<div style={{background:cardBg,borderRadius:16,padding:12,marginBottom:12,boxShadow:"var(--shadow-sm)"}}>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
+    {["อา","จ","อ","พ","พฤ","ศ","ส"].map(d=><div key={d} style={{textAlign:"center",fontSize:10,
+        fontWeight:800,color:textSub,padding:"4px 0"}}>{d}</div>)}
+  </div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+    {cells.map((d,i)=>{
+      if(!d) return<div key={i}/>;
+      const items=dayMap[String(d)]||[];
+      const isToday=isThisMonth&&String(d)===todayD;
+      const hasItems=items.length>0;
+      const totalAmt=items.reduce((a,x)=>a+x.amt,0);
+      return<button key={i} onClick={()=>setSelectedDay(selectedDay===d?null:d)}
+        style={{borderRadius:10,padding:"5px 2px",border:"none",cursor:"pointer",
+          textAlign:"center",minHeight:44,
+          background:selectedDay===d?"var(--c-accent)":isToday?"var(--c-accent)18":hasItems?"#10b98110":"transparent",
+          boxShadow:isToday?"0 0 0 2px var(--c-accent)":"none"}}>
+        <div style={{fontSize:12,fontWeight:isToday?900:700,
+            color:selectedDay===d?"#fff":isToday?"var(--c-accent)":textMain}}>{d}</div>
+        {hasItems&&<div style={{fontSize:8,fontWeight:800,marginTop:2,
+            color:selectedDay===d?"#fff":"#10b981"}}>฿{fmt(totalAmt)}</div>}
+        {hasItems&&<div style={{width:4,height:4,borderRadius:"50%",margin:"2px auto 0",
+            background:selectedDay===d?"#fff":"#10b981"}}/>}
+      </button>;
+    })}
+  </div>
+</div>
+
+{/* Selected day detail */}
+{selectedDay&&<div>
+  <div style={{fontSize:12,fontWeight:800,color:textSub,marginBottom:6}}>
+    📌 {selectedDay} {MONTHS[m-1]} {y+543} · {selectedItems.length} รายการ
+  </div>
+  {selectedItems.length===0
+    ?<div style={{background:cardBg,borderRadius:12,padding:16,textAlign:"center",color:textSub,fontSize:12}}>
+      ไม่มีนัดชำระวันนี้
+    </div>
+    :selectedItems.map((x,i)=><div key={i} style={{background:cardBg,borderRadius:12,
+          padding:"11px 13px",marginBottom:6,boxShadow:"var(--shadow-sm)",
+          display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div>
+        <div style={{fontSize:12,fontWeight:800,color:textMain}}>{x.cust?.name||"ไม่ระบุ"}</div>
+        <Tag type={x.debt.creditType}/>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <span style={{fontSize:14,fontWeight:900,color:"#f59e0b"}}>฿{fmt(x.amt)}</span>
+        <button onClick={()=>setModal({type:"addPayment",data:x.debt})}
+          style={{padding:"5px 10px",borderRadius:10,border:"none",
+            background:"#10b981",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          รับเงิน
+        </button>
+      </div>
+    </div>)}
+</div>}
+
+{/* Month summary */}
+<div style={{background:cardBg,borderRadius:12,padding:"10px 13px",marginTop:8,
+    display:"flex",justifyContent:"space-between",boxShadow:"var(--shadow-sm)"}}>
+  <div style={{fontSize:11,color:textSub}}>
+    ยอดนัดทั้งเดือน <strong style={{color:textMain}}>
+      ฿{fmt(Object.values(dayMap).flat().reduce((a,x)=>a+x.amt,0))}
+    </strong>
+  </div>
+  <div style={{fontSize:11,color:textSub}}>
+    {Object.keys(dayMap).length} วัน · {Object.values(dayMap).flat().length} งวด
+  </div>
+</div>
+```
+
+  </div>;
+}
+
+// ── PIN SETTINGS ─────────────────────────────────────────────────────────────
+function PinSettings(){
+const [mode,setMode]=useState(“view”); // view | set | change | remove
+const [p1,setP1]=useState(””); const [p2,setP2]=useState(””);
+const [oldPin,setOldPin]=useState(””); const [err,setErr]=useState(””);
+const hasPin=!!lsLoad(“pin”,””);
+
+const savePin=()=>{
+if(p1.length<4){setErr(“PIN ต้องมี 4 หลัก”);return;}
+if(p1!==p2){setErr(“PIN ไม่ตรงกัน”);return;}
+lsSave(“pin”,p1);setMode(“view”);setP1(””);setP2(””);setErr(””);
+alert(“ตั้ง PIN สำเร็จ ✅”);
+};
+const changePin=()=>{
+if(oldPin!==lsLoad(“pin”,””)){setErr(“PIN เดิมไม่ถูกต้อง”);return;}
+if(p1.length<4){setErr(“PIN ใหม่ต้องมี 4 หลัก”);return;}
+if(p1!==p2){setErr(“PIN ใหม่ไม่ตรงกัน”);return;}
+lsSave(“pin”,p1);setMode(“view”);setOldPin(””);setP1(””);setP2(””);setErr(””);
+alert(“เปลี่ยน PIN สำเร็จ ✅”);
+};
+const removePin=()=>{
+if(oldPin!==lsLoad(“pin”,””)){setErr(“PIN ไม่ถูกต้อง”);return;}
+lsSave(“pin”,””);setMode(“view”);setOldPin(””);setErr(””);
+alert(“ลบ PIN แล้ว”);
+};
+
+if(mode===“view”) return<div style={{display:“flex”,gap:8,alignItems:“center”}}>
+<span style={{fontSize:12,color:“var(–c-sub)”}}>{hasPin?“🔒 มี PIN ตั้งอยู่”:“🔓 ยังไม่มี PIN”}</span>
+{!hasPin&&<Btn small color=“var(–c-accent)” onClick={()=>setMode(“set”)}>ตั้ง PIN</Btn>}
+{hasPin&&<><Btn small color=”#6366f1” outline onClick={()=>setMode(“change”)}>เปลี่ยน</Btn>
+<Btn small color=”#ef4444” outline onClick={()=>setMode(“remove”)}>ลบ</Btn></>}
+
+  </div>;
+
+return<div>
+{err&&<div style={{color:”#ef4444”,fontSize:11,fontWeight:700,marginBottom:8}}>{err}</div>}
+{(mode===“change”||mode===“remove”)&&
+<Row label="PIN เดิม"><input type=“password” maxLength={4} style={iStyle} value={oldPin}
+placeholder=“xxxx” onChange={e=>setOldPin(e.target.value)}/></Row>}
+{mode!==“remove”&&<>
+<Row label="PIN ใหม่"><input type=“password” maxLength={4} style={iStyle} value={p1}
+placeholder=“xxxx” onChange={e=>setP1(e.target.value)}/></Row>
+<Row label="ยืนยัน PIN ใหม่"><input type=“password” maxLength={4} style={iStyle} value={p2}
+placeholder=“xxxx” onChange={e=>setP2(e.target.value)}/></Row>
+</>}
+<div style={{display:“flex”,gap:6}}>
+<Btn small color=”#94a3b8” onClick={()=>{setMode(“view”);setErr(””);setP1(””);setP2(””);setOldPin(””);}}>ยกเลิก</Btn>
+{mode===“set”&&<Btn small color="var(--c-accent)" onClick={savePin}>บันทึก PIN</Btn>}
+{mode===“change”&&<Btn small color="#6366f1" onClick={changePin}>เปลี่ยน PIN</Btn>}
+{mode===“remove”&&<Btn small color="#ef4444" onClick={removePin}>ยืนยันลบ</Btn>}
+</div>
+
+  </div>;
+}
+
+// ── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+function LoginScreen({darkMode,setDarkMode}){
+const bg      = darkMode?”#1a1015”:”#f2e4eb”;
+const cardBg  = darkMode?”#2a1c22”:”#fff”;
+const textMain= darkMode?”#f5d9e0”:”#4a2535”;
+const textSub = darkMode?”#c79aa6”:”#9a6070”;
+
+const [mode,setMode]=useState(“login”);
+const [email,setEmail]=useState(””);
+const [password,setPassword]=useState(””);
+const [loading,setLoading]=useState(false);
+const [err,setErr]=useState(””);
+const [msg,setMsg]=useState(””);
+
+const errTh=(e)=>{
+const code=e?.code||””;
+const map={
+“auth/invalid-email”:          “อีเมลไม่ถูกต้อง”,
+“auth/invalid-credential”:     “อีเมลหรือรหัสผ่านไม่ถูกต้อง”,
+“auth/user-not-found”:         “ไม่พบบัญชีนี้”,
+“auth/wrong-password”:         “รหัสผ่านไม่ถูกต้อง”,
+“auth/email-already-in-use”:   “อีเมลนี้มีบัญชีอยู่แล้ว”,
+“auth/weak-password”:          “รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร”,
+“auth/too-many-requests”:      “ลองใหม่ภายหลัง (login ผิดบ่อยเกินไป)”,
+“auth/network-request-failed”: “เชื่อมต่อ Firebase ไม่ได้ — ตรวจสอบอินเทอร์เน็ต”,
+};
+return map[code]||(e?.message||“เกิดข้อผิดพลาด กรุณาลองใหม่”);
+};
+
+const doLogin=async()=>{
+if(!email.trim()||!password){setErr(“กรุณากรอกอีเมลและรหัสผ่าน”);return;}
+setLoading(true);setErr(””);
+try{
+await window._fbAuth.signInWithEmailAndPassword(email.trim(),password);
+}catch(e){
+console.error(“login:”,e.code,e.message);
+setErr(errTh(e));
+}
+setLoading(false);
+};
+
+const doRegister=async()=>{
+if(!email.trim()||!password){setErr(“กรุณากรอกอีเมลและรหัสผ่าน”);return;}
+if(password.length<6){setErr(“รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร”);return;}
+setLoading(true);setErr(””);
+try{
+await window._fbAuth.createUserWithEmailAndPassword(email.trim(),password);
+}catch(e){
+console.error(“register:”,e.code,e.message);
+setErr(errTh(e));
+}
+setLoading(false);
+};
+
+const inp={width:“100%”,padding:“12px 14px”,borderRadius:10,fontSize:14,
+border:“1.5px solid #ffdce3”,outline:“none”,display:“block”,
+background:cardBg,color:textMain,marginBottom:10};
+
+return<div style={{minHeight:“100vh”,background:bg,
+display:“flex”,alignItems:“center”,justifyContent:“center”,padding:20}}>
+<div style={{width:“100%”,maxWidth:360}}>
+
+```
+  <div style={{textAlign:"center",marginBottom:28}}>
+    <div style={{fontSize:52}}>🎀</div>
+    <div style={{fontSize:20,fontWeight:900,color:textMain,marginTop:6}}>ระบบบัญชีเครดิต</div>
+    <div style={{fontSize:11,color:textSub,marginTop:3}}>แยกทุน · กำไร · ติดตามทุกบัญชี</div>
+  </div>
+
+  <div style={{background:cardBg,borderRadius:20,padding:"22px 20px",
+      boxShadow:"0 8px 32px rgba(0,0,0,0.10)"}}>
+
+    <div style={{display:"flex",background:"#f3e4eb",borderRadius:10,padding:3,marginBottom:18}}>
+      {[["login","เข้าสู่ระบบ"],["register","สมัครสมาชิก"]].map(([k,label])=>
+        <button key={k} onClick={()=>{setMode(k);setErr("");setMsg("");}}
+          style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",
+            fontSize:12,fontWeight:800,
+            background:mode===k?cardBg:"transparent",
+            color:mode===k?"#ff4d6d":"#9a6070"}}>
+          {label}
+        </button>
+      )}
+    </div>
+
+    {err&&<div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,
+        padding:"10px 12px",marginBottom:12,fontSize:12,color:"#dc2626",fontWeight:700}}>
+      ⚠️ {err}
+    </div>}
+    {msg&&<div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,
+        padding:"10px 12px",marginBottom:12,fontSize:12,color:"#16a34a",fontWeight:700}}>
+      ✅ {msg}
+    </div>}
+
+    <div style={{fontSize:11,fontWeight:700,color:textSub,marginBottom:4}}>อีเมล</div>
+    <input type="email" value={email} style={inp}
+      placeholder="example@email.com"
+      onChange={e=>setEmail(e.target.value)}
+      onKeyDown={e=>e.key==="Enter"&&(mode==="login"?doLogin():doRegister())}/>
+
+    <div style={{fontSize:11,fontWeight:700,color:textSub,marginBottom:4}}>รหัสผ่าน</div>
+    <input type="password" value={password} style={{...inp,marginBottom:14}}
+      placeholder="อย่างน้อย 6 ตัวอักษร"
+      onChange={e=>setPassword(e.target.value)}
+      onKeyDown={e=>e.key==="Enter"&&(mode==="login"?doLogin():doRegister())}/>
+
+    {mode==="login"
+      ?<button onClick={doLogin} disabled={loading}
+          style={{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
+            cursor:loading?"not-allowed":"pointer",fontSize:15,fontWeight:800,color:"#fff",
+            background:"linear-gradient(135deg,#ff4d6d,#ff9eaa)",opacity:loading?0.6:1}}>
+          {loading?"กำลังเข้าระบบ...":"เข้าสู่ระบบ"}
+        </button>
+      :<button onClick={doRegister} disabled={loading}
+          style={{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
+            cursor:loading?"not-allowed":"pointer",fontSize:15,fontWeight:800,color:"#fff",
+            background:"linear-gradient(135deg,#6366f1,#818cf8)",opacity:loading?0.6:1}}>
+          {loading?"กำลังสมัคร...":"สมัครสมาชิก"}
+        </button>}
+
+    <div style={{textAlign:"center",marginTop:14,fontSize:11,color:textSub}}>
+      Firebase: {window._fbReady?"🟢 พร้อมใช้งาน":"🔴 เชื่อมต่อไม่ได้"}
+    </div>
+  </div>
+</div>
+```
+
+  </div>;
+}
+
+// Firebase โหลดแบบ synchronous ก่อน Babel แล้ว — mount ได้ทันที
+// ── BILLING MODAL: วางบิล + รับชำระได้ในหน้าเดียว ────────────────────────────
+function BillingModal({debt,cust,dStats,payments,schedules,onSave,onClose}){
+const s=dStats[debt.id];
+const sp=calcSplit(debt);
+const [payAmt,setPayAmt]=useState(””);
+const [payDate,setPayDate]=useState(today());
+const [payNote,setPayNote]=useState(””);
+const [payType,setPayType]=useState(debt.schedule?.payMode||“principal_interest”);
+const fullSched=buildFullSchedule(debt);
+const overdue=getOverdue(debt,fullSched,payments,today());
+const upcoming=fullSched.filter(s=>s.date>=today()&&s.date<=addDays(today(),30));
+const amt=toN(payAmt);
+
+const doSave=()=>{
+if(!(amt>0)){alert(“กรอกจำนวนเงิน”);return;}
+onSave({debtId:debt.id,date:payDate,amount:amt,payType,note:payNote});
+};
+
+const printReceipt=()=>{
+const win=window.open(””,”_blank”,“width=360,height=500”);
+const now=new Date().toLocaleDateString(“th-TH”,{year:“numeric”,month:“long”,day:“numeric”});
+win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"/> <title>ใบเสร็จ</title> <style>body{font-family:sans-serif;padding:20px;max-width:320px;margin:0 auto} h3{text-align:center;color:#8c5a65}.row{display:flex;justify-content:space-between; padding:5px 0;border-bottom:1px solid #ffdce3;font-size:12px} .total{font-size:16px;font-weight:bold;color:#ef4444;text-align:right;margin-top:10px} @media print{button{display:none}}</style> </head><body> <h3>🎀 ใบเสร็จรับเงิน</h3> <div style="text-align:center;font-size:11px;color:#888;margin-bottom:12px">${now}</div> <div class="row"><span>ลูกค้า</span><strong>${cust?.name||"-"}</strong></div> <div class="row"><span>ประเภท</span><span>${CREDIT_TYPES.find(t=>t.value===debt.creditType)?.label||"-"}</span></div> <div class="row"><span>ยอดค้างก่อนชำระ</span><span>฿${Math.round(s?.remaining||0).toLocaleString("th-TH")}</span></div> <div class="row"><span>จำนวนที่ชำระ</span><strong>฿${Math.round(amt).toLocaleString("th-TH")}</strong></div> <div class="row"><span>คงเหลือ</span><span>฿${Math.max(0,Math.round((s?.remaining||0)-amt)).toLocaleString("th-TH")}</span></div> ${payNote?`<div class="row"><span>หมายเหตุ</span><span>${payNote}</span></div>`:""} <div class="total">รับเงิน ฿${Math.round(amt).toLocaleString("th-TH")}</div> <div style="text-align:center;margin-top:16px;font-size:10px;color:#aaa">ขอบคุณที่ไว้วางใจ 🎀</div> <br/><button onclick="window.print()" style="width:100%;padding:10px;background:#ff4d6d; color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">🖨️ พิมพ์</button> </body></html>`);
+win.document.close();
+};
+
+return<Modal title={`🧾 วางบิล — ${cust?.name||""}`} onClose={onClose}>
+{/* สรุปบิล */}
+<div style={{background:“var(–c-panel)”,borderRadius:“var(–radius-sm)”,padding:“10px 12px”,marginBottom:12}}>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr”,gap:6}}>
+<MCard label=“ยอดค้างทั้งหมด” value={`฿${fmt(s?.remaining||0)}`} color=”#ef4444”/>
+<MCard label=“งวดละ” value={`฿${fmt(s?.installAmt||0)}`} color=”#f59e0b”/>
+<MCard label=“ทุนแม่” value={`฿${fmt(debt.principalMom||0)}`} color=”#8b5cf6”/>
+<MCard label=“ทุนเรา” value={`฿${fmt(debt.principalUs||0)}`} color=”#3b82f6”/>
+</div>
+</div>
+
+```
+{/* งวดที่ค้าง */}
+{overdue.length>0&&<div style={{background:"#fef2f2",border:"1px solid #fecaca",
+    borderRadius:"var(--radius-sm)",padding:"10px 12px",marginBottom:10}}>
+  <div style={{fontSize:11,fontWeight:800,color:"#b91c1c",marginBottom:5}}>⚠️ ค้างชำระ {overdue.length} งวด</div>
+  {overdue.slice(0,3).map((x,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11}}>
+    <span style={{color:"#b07d89"}}>{thDate(x.date)}</span>
+    <span style={{fontWeight:700,color:"#ef4444"}}>฿{fmt(x.amtDue)}</span>
+  </div>)}
+</div>}
+
+{/* นัดครั้งถัดไป */}
+{upcoming.length>0&&overdue.length===0&&<div style={{background:"#fffbeb",border:"1px solid #fde68a",
+    borderRadius:"var(--radius-sm)",padding:"8px 12px",marginBottom:10,fontSize:11,color:"#92400e"}}>
+  📅 นัดถัดไป: {thDate(upcoming[0].date)} ฿{fmt(upcoming[0].amtDue)}
+</div>}
+
+{/* รับชำระ */}
+<Row label="รูปแบบ">
+  <select style={iStyle} value={payType} onChange={e=>setPayType(e.target.value)}>
+    <option value="principal_interest">ต้น + ดอก</option>
+    <option value="interest_only">จ่ายแต่ดอก</option>
+  </select>
+</Row>
+<Row label="วันที่รับเงิน">
+  <input type="date" style={iStyle} value={payDate} onChange={e=>setPayDate(e.target.value)}/>
+</Row>
+<Row label="จำนวนเงิน (฿)">
+  <input type="number" style={iStyle} value={payAmt}
+    placeholder={`งวดละ ฿${fmt(s?.installAmt||0)}`}
+    onChange={e=>setPayAmt(e.target.value)}/>
+</Row>
+
+{amt>0&&<div style={{background:"#eff6ff",border:"1px solid #bfdbfe",
+    borderRadius:"var(--radius-sm)",padding:"8px 12px",marginBottom:10}}>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
+    <MCard label="ทุนแม่คืน" value={`฿${fmt(amt*sp.momRatio)}`} color="#8b5cf6"/>
+    <MCard label="ทุนเราคืน" value={`฿${fmt(amt*sp.usRatio)}`} color="#3b82f6"/>
+    <MCard label="กำไรแม่" value={`฿${fmt(amt*sp.momProfitRatio)}`} color="#a855f7"/>
+    <MCard label="กำไรเรา" value={`฿${fmt(amt*sp.usProfitRatio)}`} color="#10b981"/>
+  </div>
+</div>}
+
+<Row label="หมายเหตุ">
+  <input style={iStyle} value={payNote} placeholder="เช่น จ่ายงวดที่ 3"
+    onChange={e=>setPayNote(e.target.value)}/>
+</Row>
+<div style={{display:"flex",gap:8}}>
+  <Btn full color="#10b981" onClick={doSave}>💾 บันทึกรับเงิน</Btn>
+  {amt>0&&<Btn full color="#6366f1" outline onClick={printReceipt}>🖨️ ใบเสร็จ</Btn>}
+</div>
+```
+
+</Modal>;
+}
+
+// ── BILLING TAB ──────────────────────────────────────────────────────────────
+function BillingTab({debts,dStats,customers,custMap,payments,schedules,setModal,textMain,textSub,cardBg,darkMode}){
+const [selDebts,setSelDebts]=useState({}); // debtId → true/false
+const [billedList,setBilledList]=useState(()=>lsLoad(“billedList”,[]));
+useEffect(()=>lsSave(“billedList”,billedList),[billedList]);
+
+const activeDebts=debts.filter(d=>(dStats[d.id]?.remaining||0)>0);
+
+// จัดกลุ่มตามลูกค้า
+const byCustomer=useMemo(()=>{
+const m={};
+activeDebts.forEach(d=>{
+if(!m[d.customerId]) m[d.customerId]=[];
+m[d.customerId].push(d);
+});
+return m;
+},[activeDebts]);
+
+const toggleDebt=(id)=>setSelDebts(p=>({…p,[id]:!p[id]}));
+const selectedList=activeDebts.filter(d=>selDebts[d.id]);
+const totalSelected=selectedList.reduce((a,d)=>a+(dStats[d.id]?.remaining||0),0);
+
+const doPrint=()=>{
+if(selectedList.length===0){alert(“เลือกบิลก่อน”);return;}
+const win=window.open(””,”_blank”,“width=400,height=600”);
+const now=new Date().toLocaleDateString(“th-TH”,{year:“numeric”,month:“long”,day:“numeric”});
+const rows=selectedList.map(d=>{
+const c=custMap[d.customerId];
+const s=dStats[d.id];
+const sp=calcSplit(d);
+const installAmt=s?.installAmt||0;
+return`<tr> <td>${c?.name||"-"}</td> <td>${CREDIT_TYPES.find(t=>t.value===d.creditType)?.label||d.creditType}</td> <td style="text-align:right">฿${Math.round(d.principalMom||0).toLocaleString("th-TH")}</td> <td style="text-align:right">฿${Math.round(d.principalUs||0).toLocaleString("th-TH")}</td> <td style="text-align:right">฿${Math.round(s?.momProfitEarned||0).toLocaleString("th-TH")}</td> <td style="text-align:right">฿${Math.round(s?.usProfitEarned||0).toLocaleString("th-TH")}</td> <td style="text-align:right;font-weight:bold;color:#e11">฿${Math.round(s?.remaining||0).toLocaleString("th-TH")}</td> <td style="text-align:right">฿${Math.round(installAmt).toLocaleString("th-TH")}</td> ${d.note?`<td>${d.note}</td>`:"<td>-</td>"} </tr>`;
+}).join(””);
+
+```
+win.document.write(`<!DOCTYPE html><html><head>
+  <meta charset="UTF-8"/>
+  <title>ใบวางบิล</title>
+  <style>
+    body{font-family:sans-serif;padding:20px;font-size:13px}
+    h2{text-align:center;color:#8c5a65}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th{background:#ffe4eb;padding:7px 6px;text-align:left;font-size:11px}
+    td{padding:6px;border-bottom:1px solid #ffdce3;font-size:11px}
+    .total{text-align:right;font-weight:bold;font-size:14px;margin-top:12px;color:#ef4444}
+    .footer{margin-top:20px;font-size:10px;color:#888;text-align:center}
+    @media print{button{display:none}}
+  </style>
+</head><body>
+  <h2>🎀 ใบวางบิล / ใบแจ้งยอด</h2>
+  <div style="text-align:center;color:#888;font-size:11px;margin-bottom:8px">วันที่ ${now}</div>
+  <table>
+    <thead><tr>
+      <th>ลูกค้า</th><th>ประเภท</th>
+      <th>ทุนแม่</th><th>ทุนเรา</th>
+      <th>กำไรแม่</th><th>กำไรเรา</th>
+      <th>ยอดค้าง</th><th>งวดละ</th><th>หมายเหตุ</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="total">ยอดรวมทั้งหมด: ฿${Math.round(totalSelected).toLocaleString("th-TH")}</div>
+  <div class="footer">พิมพ์โดยระบบบัญชีเครดิต · ${now}</div>
+  <br/><button onclick="window.print()" style="padding:8px 16px;background:#ff4d6d;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px">🖨️ พิมพ์</button>
+</body></html>`);
+win.document.close();
+// บันทึกประวัติการวางบิล
+setBilledList(p=>[{id:genId(),date:today(),debtIds:selectedList.map(d=>d.id),total:totalSelected},...p.slice(0,49)]);
+setSelDebts({});
+```
+
+};
+
+return<div>
+<div style={{display:“flex”,justifyContent:“space-between”,alignItems:“center”,marginBottom:10}}>
+<div>
+<div style={{fontWeight:800,fontSize:14,color:textMain}}>🧾 วางบิล / พิมพ์ใบเสร็จ</div>
+<div style={{fontSize:10,color:textSub,marginTop:2}}>เลือกบิลที่ต้องการวางบิล แล้วกดพิมพ์</div>
+</div>
+{selectedList.length>0&&<button onClick={doPrint}
+style={{background:”#ff4d6d”,color:”#fff”,border:“none”,borderRadius:12,
+padding:“10px 16px”,fontWeight:800,fontSize:12,cursor:“pointer”}}>
+🖨️ พิมพ์ ({selectedList.length}) ฿{fmt(totalSelected)}
+</button>}
+</div>
+
+```
+{activeDebts.length===0&&<div style={{textAlign:"center",color:textSub,padding:40}}>ไม่มีบิลที่ค้างชำระ</div>}
+
+{Object.entries(byCustomer).map(([custId,cDebts])=>{
+  const c=custMap[custId];
+  const anySelected=cDebts.some(d=>selDebts[d.id]);
+  return<div key={custId} style={{background:cardBg,borderRadius:14,padding:"10px 12px",
+      marginBottom:8,boxShadow:"var(--shadow-sm)",border:"1px solid var(--c-border)"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+      <input type="checkbox" checked={cDebts.every(d=>selDebts[d.id])}
+        onChange={()=>{
+          const allSel=cDebts.every(d=>selDebts[d.id]);
+          const upd={};
+          cDebts.forEach(d=>upd[d.id]=!allSel);
+          setSelDebts(p=>({...p,...upd}));
+        }}/>
+      <span style={{fontWeight:800,fontSize:13,color:textMain}}>{c?.name||"ไม่ระบุ"}</span>
+      <span style={{fontSize:10,color:textSub}}>{cDebts.length} บิล</span>
+    </div>
+    {cDebts.map(d=>{
+      const s=dStats[d.id];
+      return<div key={d.id} style={{display:"flex",alignItems:"center",gap:8,
+          padding:"6px 0",borderTop:"1px solid var(--c-border)"}}>
+        <input type="checkbox" checked={!!selDebts[d.id]}
+          onChange={()=>toggleDebt(d.id)}/>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+            <Tag type={d.creditType}/>
+            {d.note&&<span style={{fontSize:9,color:textSub}}>{d.note}</span>}
+          </div>
+          <div style={{fontSize:10,color:textSub,marginTop:2}}>
+            งวดละ ฿{fmt(s?.installAmt||0)} · ค้าง {s?.overdueCount||0} งวด
+          </div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div style={{fontWeight:800,color:"#ef4444",fontSize:12}}>฿{fmt(s?.remaining||0)}</div>
+        </div>
+      </div>;
+    })}
+  </div>;
+})}
+
+{/* ประวัติการวางบิล */}
+{billedList.length>0&&<>
+  <div style={{fontSize:11,fontWeight:800,color:textSub,margin:"14px 0 6px",textTransform:"uppercase",letterSpacing:".05em"}}>
+    ประวัติการวางบิล
+  </div>
+  {billedList.slice(0,10).map(b=><div key={b.id} style={{display:"flex",justifyContent:"space-between",
+      alignItems:"center",background:cardBg,borderRadius:10,padding:"8px 12px",marginBottom:5,
+      boxShadow:"var(--shadow-sm)",border:"1px solid var(--c-border)"}}>
+    <div>
+      <div style={{fontSize:11,fontWeight:700,color:textMain}}>{thDate(b.date)}</div>
+      <div style={{fontSize:9,color:textSub}}>{b.debtIds.length} บิล</div>
+    </div>
+    <div style={{fontWeight:800,color:"var(--c-accent)"}}>฿{fmt(b.total)}</div>
+  </div>)}
+</>}
+```
+
+  </div>;
+}
+
+// ── INTEREST CALCULATOR TAB ───────────────────────────────────────────────────
+function InterestCalcTab({textMain,textSub,cardBg}){
+const [principal,setPrincipal]=useState(””);
+const [months,setMonths]=useState(12);
+const [mode,setMode]=useState(“flat”); // flat | reducing
+
+const p=toN(principal);
+const rows=[];
+for(let r=1;r<=30;r++){
+const rate=r/100;
+if(mode===“flat”){
+const totalInterest=p*rate*months;
+const totalPay=p+totalInterest;
+const monthly=months>0?totalPay/months:0;
+rows.push({rate:r,totalInterest,totalPay,monthly});
+} else {
+// reducing balance
+const mRate=rate/12;
+const monthly=mRate>0?p*(mRate*Math.pow(1+mRate,months))/(Math.pow(1+mRate,months)-1):p/months;
+const totalPay=monthly*months;
+const totalInterest=totalPay-p;
+rows.push({rate:r,totalInterest,totalPay,monthly});
+}
+}
+
+return<div>
+<div style={{fontWeight:800,fontSize:14,color:textMain,marginBottom:4}}>🧮 คำนวณดอกเบี้ย</div>
+<div style={{fontSize:10,color:textSub,marginBottom:12}}>เปรียบเทียบดอก 1%–30% พร้อมกัน</div>
+
+```
+<div style={{background:cardBg,borderRadius:14,padding:14,marginBottom:12,boxShadow:"var(--shadow-sm)"}}>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+    <div>
+      <div style={{fontSize:11,fontWeight:700,color:textSub,marginBottom:4}}>เงินต้น (฿)</div>
+      <input type="number" style={{...{width:"100%",padding:"10px 12px",border:"1.5px solid var(--c-border)",
+        borderRadius:10,fontSize:14,background:"var(--c-input-bg)",color:textMain,outline:"none"}}}
+        value={principal} placeholder="เช่น 10000"
+        onChange={e=>setPrincipal(e.target.value)}/>
+    </div>
+    <div>
+      <div style={{fontSize:11,fontWeight:700,color:textSub,marginBottom:4}}>จำนวนเดือน</div>
+      <input type="number" style={{...{width:"100%",padding:"10px 12px",border:"1.5px solid var(--c-border)",
+        borderRadius:10,fontSize:14,background:"var(--c-input-bg)",color:textMain,outline:"none"}}}
+        value={months} min={1} max={360}
+        onChange={e=>setMonths(Math.max(1,+e.target.value||1))}/>
+    </div>
+  </div>
+  <div style={{display:"flex",gap:6}}>
+    {[["flat","ดอกคงที่ (Flat)"],["reducing","ดอกลดต้น (Reducing)"]].map(([k,l])=>
+      <button key={k} onClick={()=>setMode(k)} style={{flex:1,padding:"8px 0",borderRadius:10,
+          border:"none",cursor:"pointer",fontWeight:800,fontSize:11,
+          background:mode===k?"var(--c-accent)":"var(--c-panel)",
+          color:mode===k?"#fff":"var(--c-sub)"}}>
+        {l}
+      </button>
+    )}
+  </div>
+</div>
+
+{p>0&&<div style={{background:cardBg,borderRadius:14,overflow:"hidden",boxShadow:"var(--shadow-sm)"}}>
+  <div style={{overflowX:"auto"}}>
+    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+      <thead>
+        <tr style={{background:"var(--c-panel)"}}>
+          {["อัตรา%","ผ่อน/เดือน","ดอกรวม","จ่ายรวม"].map(h=>
+            <th key={h} style={{padding:"8px 10px",textAlign:"right",fontWeight:800,
+                color:textMain,borderBottom:"1px solid var(--c-border)",whiteSpace:"nowrap"}}>
+              {h}
+            </th>
+          )}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r,i)=><tr key={r.rate} style={{background:i%2===0?"transparent":"var(--c-panel)"}}>
+          <td style={{padding:"7px 10px",fontWeight:800,color:"var(--c-accent)",textAlign:"right"}}>{r.rate}%</td>
+          <td style={{padding:"7px 10px",fontWeight:700,textAlign:"right",color:textMain}}>฿{fmt(r.monthly)}</td>
+          <td style={{padding:"7px 10px",textAlign:"right",color:"#ef4444",fontWeight:600}}>฿{fmt(r.totalInterest)}</td>
+          <td style={{padding:"7px 10px",textAlign:"right",fontWeight:800,color:textMain}}>฿{fmt(r.totalPay)}</td>
+        </tr>)}
+      </tbody>
+    </table>
+  </div>
+</div>}
+
+{!p&&<div style={{textAlign:"center",color:textSub,padding:32}}>กรอกเงินต้นเพื่อดูตาราง</div>}
+```
+
+  </div>;
+}
+
+function _mountWhenReady(fn){ fn(); }
+
+window._mountWhenReady(function() {
+ReactDOM.createRoot(document.getElementById(“root”)).render(<App/>);
+});
+</script>
+
+</body>
+</html>
